@@ -1,0 +1,436 @@
+package boggle;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
+
+import org.jgrapht.Graph;
+import org.jgrapht.graph.DefaultEdge;
+import org.jgrapht.graph.DefaultUndirectedGraph;
+import org.jgrapht.graph.SimpleGraph;
+
+import models.Dice;
+import tree.LexicographicTree;
+
+public class Boggle {
+	
+	private static final char[] ALPHABET = {'a','b','c','d','e','f','g','h','i','j','k','l','m',
+			'n','o','p','q','r','s','t','u','v','w','x','y','z'};
+
+	// fréquence des lettres de l'alphabet arrondis au centième près
+	private static final double[] FREQUENCY = new double[]{8.70, 0.93, 3.15, 3.55, 17.9, 0.96, 0.97,
+			1.08, 6.97, 0.71, 0.16, 5.68, 3.23, 6.42, 5.34, 3.03, 0.89, 6.43, 7.91, 7.11, 6.14, 1.83, 0.04, 0.42, 0.19, 0.21};
+	
+	private LexicographicTree tree;
+	private Graph<Dice, DefaultEdge> grid = new SimpleGraph<>(DefaultEdge.class);
+	
+	/*
+	 * CONSTRUCTORS
+	 */
+	
+	/**
+	 * Constructor : creates a Boggle grid filled with random letters.
+	 * @param size The size of the squared grid
+	 * @param dict A dictionary of allowed words
+	 */
+	public Boggle(int size, LexicographicTree dict) {
+		tree = dict;
+		
+		if(size < 1) throw new IllegalArgumentException("L'argument size ne peut pas être inférieur à 1");
+		
+		//create an array to make the edges
+		Dice[][] tab = new Dice[size][size];
+		
+		for(int i = 0; i < size; i++) {
+			for(int j = 0; j < size; j++) {
+				tab[i][j] = new Dice(randomLetterBasedOnFrequency());
+			}
+		}
+		
+		fillGraph(tab);
+	}
+	
+	/**
+	 * Constructor : creates a Boggle grid filled with the supplied letters.
+	 * @param size The size of the squared grid
+	 * @param letters A string containing the (size x size) letters used to fill the grid
+	 * @param dict A dictionary of allowed words
+	 */
+	public Boggle(int size, String letters, LexicographicTree dict) {
+		tree = dict;
+		
+		if(size < 1) throw new IllegalArgumentException("L'argument size ne peut pas être inférieur à 1");
+		if(letters.length() < size*size) throw new IllegalArgumentException("L'argument letter ne comporte pas assez de lettres");;
+		
+		Dice[][] tab = new Dice[size][size];
+		int count = 0;
+		
+		for(int i = 0; i < size; i++) {
+			for(int j = 0; j < size; j++) {
+				tab[i][j] = new Dice(letters.charAt(count++));
+			}
+		}
+		
+		fillGraph(tab);
+	}
+	
+	/*
+	 * PUBLIC METHODS
+	 */
+	
+	/**
+	 * Returns the letters in the Boggle grid.
+	 * @return a string of letters
+	 */
+	public String letters() {
+		String letters = "";
+		for(var vertex : grid.vertexSet()) {
+			letters += vertex.getLetter();
+		}
+		return letters; 
+	}
+	
+	/**
+	 * Determines if a word can be found in the Boggle grid.
+	 * @param word a word
+	 * @return true if the word is present, false otherwise
+	 */
+	public boolean contains(String word) {
+		if(word == null) throw new IllegalArgumentException("L'argument word ne doit pas etre null");
+		if(!word.matches("[a-zA-Z]+")) return false;
+		if(word.length() < 3) return false;
+		
+		HashSet <Dice> visited = new HashSet<Dice>();
+		
+		for(var vertex : grid.vertexSet()) {
+			
+			if(vertex.getLetter() == word.charAt(0)) {
+				visited.add(vertex);
+				
+				if(containsRecursive(word.substring(1), vertex, visited)) return true;
+				
+				visited.remove(vertex);
+			}
+		}
+		
+		return false;
+	}
+
+	/**
+	 * Searches for words in the Boggle grid.
+	 * @return the set of found words
+	 */
+	public Set<String> solve() {
+		Set<String> words = new HashSet<String>();
+		
+		for(var vertex : grid.vertexSet()) {
+			//get all the words that is possible to make when we start from each dice
+			words.addAll(solveRecursive(new HashSet<String>(),vertex, ""));
+		}	
+		
+		return words;
+	}
+	
+	/**
+	 * Returns a textual representation of the Boggle grid.
+	 * @return a textual representation of the Boggle grid
+	 */
+	public String toString() {
+		String gridString = "";
+		int size = (int) Math.sqrt(grid.vertexSet().size());
+		Iterator<Dice> it = grid.vertexSet().iterator();
+		
+		for(int i = 0; i < size; i++) {
+			for(int j = 0; j < size; j++) {
+				gridString += it.next().getLetter();
+			}
+			if(i != size - 1) gridString += '\n';
+		}
+		return gridString;
+	}
+
+	/*
+	 * PRIVATE METHODS
+	 */
+	
+	/**
+	 * Generate a letter with a random based on each letter frequency 
+	 * @return a letter
+	 */
+	private char randomLetterBasedOnFrequency() {
+		// random number between 0.00 and 100.00
+		double random = Math.floor(Math.random() * 10000) / 100.0;
+        double sum = 0;
+        
+        for (int i = 0; i < FREQUENCY.length; i++) {
+        	// on cumule les frequences car par exemple les probas d'avoir B sont l'ecart entre A (8.70) et
+        	// A + B (8.70 + 0.93 = 9.63) et ainsi de suite pour chaque nombre
+            sum += FREQUENCY[i];  
+            if (random < sum) {
+                return ALPHABET[i];
+            }
+        }
+        
+        // random au cas ou il y aurait une erreur à cause des virgules et des arrondissement
+        int index = (int) Math.floor ((Math.random() * 26));
+        return ALPHABET[index] ; 
+    }
+	
+	
+	/**
+	 * fill the graph with the help of the array to know the neighbors of each Dice
+	 * @param letters the Dice's arrays that contains the letters of the grid
+	 */
+	private void fillGraph(Dice[][] letters) {
+		
+		for(var row : letters) {
+			for(var letter : row) {
+				grid.addVertex(letter);
+			}
+		}
+		
+		for(int i = 0; i < letters.length; i++) {
+			for(int j = 0; j < letters.length; j++) {
+				 
+				//check that the edge is not already in the graph
+				if(i > 0 && !gridContainsEdge(letters[i][j], letters[i-1][j]) ) {
+					grid.addEdge(letters[i][j], letters[i-1][j]);
+				}
+				if(i < letters.length-1 && !gridContainsEdge(letters[i][j], letters[i+1][j]) ) {
+					grid.addEdge(letters[i][j], letters[i+1][j]);
+				}
+				if(j > 0 && !gridContainsEdge(letters[i][j], letters[i][j-1]) ) {
+					grid.addEdge(letters[i][j], letters[i][j-1]);
+				}
+				if(j < letters.length-1 && !gridContainsEdge(letters[i][j], letters[i][j+1]) ) {
+					grid.addEdge(letters[i][j], letters[i][j+1]);
+				}
+				
+				if(i < letters.length-1 && j < letters.length-1 && !gridContainsEdge(letters[i][j], letters[i+1][j+1]) ) {
+					grid.addEdge(letters[i][j], letters[i+1][j+1]);
+				}
+				if(i > 0 && j < letters.length-1 && !gridContainsEdge(letters[i][j], letters[i-1][j+1]) ) {
+					grid.addEdge(letters[i][j], letters[i-1][j+1]);
+				}
+				if(i > 0 && j > 0 && !gridContainsEdge(letters[i][j], letters[i-1][j-1]) ) {
+					grid.addEdge(letters[i][j], letters[i-1][j-1]);
+				}
+				if(i < letters.length-1 && j > 0 && !gridContainsEdge(letters[i][j], letters[i+1][j-1]) ) {
+					grid.addEdge(letters[i][j], letters[i+1][j-1]);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Check if the edge exist in the property grid 
+	 * @param d1 one of the vertex of the edge
+	 * @param d2 the other vertex of the edge
+	 * @return false if the edge doesnt existe, true otherwise
+	 */
+	private boolean gridContainsEdge(Dice d1, Dice d2) {
+		if(!grid.containsEdge(d1, d2)) {
+			return false;
+		}
+		return true;
+	}
+	
+	/**
+	 * iterate through each dice and its neighbors to know if it's possible to make a word
+	 * @param word the word we want to make
+	 * @param currentVertex the actualVertex
+	 * @param visited 
+	 * @return true if it's possible to make the word, false otherwise
+	 */
+	private boolean containsRecursive(String word, Dice currentVertex, HashSet<Dice> visited) {
+		Set<DefaultEdge> allEdges = grid.edgesOf(currentVertex);
+		
+		//stop the recursivity when the length of the word equals 1
+		if(word.length() == 1) {
+			
+			for(var edge : allEdges) {
+				
+				//allows to get the vertex opposite to the current vertex
+				Dice target = grid.getEdgeTarget(edge).equals(currentVertex) ? grid.getEdgeSource(edge) : grid.getEdgeTarget(edge);
+				
+				//check if it's possible to make the word while respecting the rules of the game
+				if(target.getLetter() == word.charAt(0) && !visited.contains(target)) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		for(var edge : allEdges) {
+			
+			//allows to get the vertex opposite to the current vertex
+			Dice target = grid.getEdgeTarget(edge).equals(currentVertex) ? grid.getEdgeSource(edge) : grid.getEdgeTarget(edge);
+			
+			//check if it's possible to make the word while respecting the rules of the game
+			if(target.getLetter() == word.charAt(0) && !visited.contains(target)) {
+				
+				//add the dice to visited so we cant use a dice twice in the same "path"
+				visited.add(target);
+				if(containsRecursive(word.substring(1), target, visited)) return true;
+				//remove the Dice from visited to allow the dice to be in another "path"
+				visited.remove(target);
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 * iterate through each dice and its neighbors to know each word that can be make
+	 * @param words the list of possible words
+	 * @param currentVertex the actualVertex
+	 * @param word the actual prefix/word 
+	 * @return a set of all the words that we can make
+	 */
+	private Set<String> solveRecursive(Set<String> words, Dice currentVertex, String word) {
+		word += currentVertex.getLetter();
+		
+		if(word.length() >= 3) {
+			//stop the recursivity when we cant make some words with the prefix
+			if(!tree.containsPrefix(word)) return words;
+			
+			if(tree.containsWord(word)) {
+				words.add(word);
+			}
+		}
+		
+		Set<DefaultEdge> allEdges = grid.edgesOf(currentVertex);
+		
+		for(var edge : allEdges) {
+			
+			
+			Dice target = grid.getEdgeTarget(edge) == currentVertex ? grid.getEdgeSource(edge) : grid.getEdgeTarget(edge) ;	
+			
+			if(!target.isVisited()) {
+				
+				//set the property isVisited to true so we cant use a dice twice in the same "path"
+				currentVertex.setIsVisited(true);
+				
+                words = (solveRecursive(words ,target, word));
+                
+                //set the property isVisited to false to allow the dice to be in another "path"
+                currentVertex.setIsVisited(false);
+            }
+			
+		}
+		
+		return words;
+	}
+	
+	/*
+	 * MAIN PROGRAM
+	 */
+	
+	public static void main(String[] args) {
+		long startTime = System.currentTimeMillis();
+		System.out.println("Loading dictionary...");
+		LexicographicTree dictionary = new LexicographicTree("mots/dictionnaire_FR_sans_accents.txt");
+		long loadDictTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (loadDictTime - startTime)/1000.0);
+		System.out.println("Number of words : " + dictionary.size());
+		System.out.println();
+
+		// Sample grids
+		//String grid4x4 = "rhreypcswnsntego"; // Wikipedia example
+		//Boggle boggle = new Boggle(4, grid4x4, dictionary);
+
+	//	String grid10x10 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecuds";
+	//	Boggle boggle = new Boggle(10, grid10x10, dictionary);
+
+//		String grid20x20 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittc";
+//		Boggle boggle = new Boggle(20, grid20x20, dictionary);
+
+//		String grid50x50 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittciivsomuestiurfuaxreeunuennetemubenanvsucimozentlvptnsoyaoatospesvaesasyysdlbdoraguhpleonvfrelentickiwzrnmimsaeimralovhetscejsdsnrtcsgporubtewesdklorlvteselauxieusieetfmiplllneuyprlpiiujiewverneussnnaxoaswclermderupyurmaareuescriqesbeeadldnlhtsnaucxeadstciqneeetcwtctcltavxgiiuorlomewbleeaoanrjeqeaqhzetmamisirasceranivleteeuaedeaatnsostwtbtonuasilsodhxsmnetecuoesepmotlndamvdcaeebiualneltdrtnwgerifterpepdetdbgollulneoynesonnrpesaustieundaevansmspaisinusitiaagrhoaeeewotnlagtlinjdssnocmeigvultkamnarvcloohslgiueawnyterddduepeislsmaemaiensuytiraesliehotcmaeoeovtsoiostialfertapbuptefeeleeonkeeectcdtneuidrlrpeenmeauvztltsetaeidlsrgscvlsenmetyeoueqesassooiajprrsytioqesugwvatixluutotimwlpesreeicylreeeseauueeeeapornntulivlonansipvoeeactiuecmeudnenrqaieordhluomrtsrmetetswlieqcmltslvsadeuspglmyruteoixiuoepdnectntentdaualdpcsoaeljvonkeftneiuedeeztsatencaectoeptluatriocdocrdtmudleueornptmeintlzejaaaneeradibraeaoaanpoisieeurtettrxvtneoegleltagkasosrastluadxsepnlsaadoaiepjswyedatmrsnivmriseaweinvatepciuuesssnllsssmixlesiedettssyoeuipwltetitececoieeozweaenmlaoroospptusidpkdvsrnqaajituspuuleiisheiogeinpbbsitbsvetofsncnaetaowooekmuntavroonjraduuacknoqqknnnrjoopeeofzdyseaoltsclvaaapiueceauofcdbntmxtneetpoitwiinfaeltgueeispzeacneqmviaiusaettplhiuaetqaewtfuuipoueuesnsoxaixaeeyavqllssqareessnmeolsetlvttbpbeoosesiuincpnersriiterrincnhsemaunvaseeueprldkiecnwtisultmmenensaojgidntetselyzagtctaisiraipzegeienjreosuuszuynlnpooesurddauuuitnouspiiuaeeqerelumdalnohdhueuuiiaiaaltlunnsnamleoprecysucviuirsatenctssjeniinreuenvirsntrwzntaeeieouapntlmayotrpsuunnuiptsxaevplkmuruasocuimontijceksmaeaaearurosaeitpimvtityevsualpsosallkkimiaaievplozjirncedcismssamnerotsprnltlhfiokolroleeaejexjslihseaoelqnsrwizluirhuraarefssdsealtkuediqtdpwekselinealineozeremtjandnrerracqoakiltrcsnwataavalommuslrdqawqpcneaiotajsaiedrkoxtasfyvermeyrnaibrdeiixlefsesvsqrlobkatcptiuxpmvanohcedlemkgevsuoexjjmenoteatptylewesoeotzbveiugseaswoeueoirpupdpulsidsiosueeealdepeltuwssipsecinicloeantylscemtsbairodutathtceeutmrsiarnptamasrrildiuwntaisaatculursrgeierrheeiteacuroruyfretvcxegadiiunguenunubreuflnccretdeetwmdunttrosyntooieeeutvenra";
+//		Boggle boggle = new Boggle(50, grid50x50, dictionary);
+
+//		String grid100x100 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittciivsomuestiurfuaxreeunuennetemubenanvsucimozentlvptnsoyaoatospesvaesasyysdlbdoraguhpleonvfrelentickiwzrnmimsaeimralovhetscejsdsnrtcsgporubtewesdklorlvteselauxieusieetfmiplllneuyprlpiiujiewverneussnnaxoaswclermderupyurmaareuescriqesbeeadldnlhtsnaucxeadstciqneeetcwtctcltavxgiiuorlomewbleeaoanrjeqeaqhzetmamisirasceranivleteeuaedeaatnsostwtbtonuasilsodhxsmnetecuoesepmotlndamvdcaeebiualneltdrtnwgerifterpepdetdbgollulneoynesonnrpesaustieundaevansmspaisinusitiaagrhoaeeewotnlagtlinjdssnocmeigvultkamnarvcloohslgiueawnyterddduepeislsmaemaiensuytiraesliehotcmaeoeovtsoiostialfertapbuptefeeleeonkeeectcdtneuidrlrpeenmeauvztltsetaeidlsrgscvlsenmetyeoueqesassooiajprrsytioqesugwvatixluutotimwlpesreeicylreeeseauueeeeapornntulivlonansipvoeeactiuecmeudnenrqaieordhluomrtsrmetetswlieqcmltslvsadeuspglmyruteoixiuoepdnectntentdaualdpcsoaeljvonkeftneiuedeeztsatencaectoeptluatriocdocrdtmudleueornptmeintlzejaaaneeradibraeaoaanpoisieeurtettrxvtneoegleltagkasosrastluadxsepnlsaadoaiepjswyedatmrsnivmriseaweinvatepciuuesssnllsssmixlesiedettssyoeuipwltetitececoieeozweaenmlaoroospptusidpkdvsrnqaajituspuuleiisheiogeinpbbsitbsvetofsncnaetaowooekmuntavroonjraduuacknoqqknnnrjoopeeofzdyseaoltsclvaaapiueceauofcdbntmxtneetpoitwiinfaeltgueeispzeacneqmviaiusaettplhiuaetqaewtfuuipoueuesnsoxaixaeeyavqllssqareessnmeolsetlvttbpbeoosesiuincpnersriiterrincnhsemaunvaseeueprldkiecnwtisultmmenensaojgidntetselyzagtctaisiraipzegeienjreosuuszuynlnpooesurddauuuitnouspiiuaeeqerelumdalnohdhueuuiiaiaaltlunnsnamleoprecysucviuirsatenctssjeniinreuenvirsntrwzntaeeieouapntlmayotrpsuunnuiptsxaevplkmuruasocuimontijceksmaeaaearurosaeitpimvtityevsualpsosallkkimiaaievplozjirncedcismssamnerotsprnltlhfiokolroleeaejexjslihseaoelqnsrwizluirhuraarefssdsealtkuediqtdpwekselinealineozeremtjandnrerracqoakiltrcsnwataavalommuslrdqawqpcneaiotajsaiedrkoxtasfyvermeyrnaibrdeiixlefsesvsqrlobkatcptiuxpmvanohcedlemkgevsuoexjjmenoteatptylewesoeotzbveiugseaswoeueoirpupdpulsidsiosueeealdepeltuwssipsecinicloeantylscemtsbairodutathtceeutmrsiarnptamasrrildiuwntaisaatculursrgeierrheeiteacuroruyfretvcxegadiiunguenunubreuflnccretdeetwmdunttrosyntooieeeutvenrauadifguljtnluldveesenumlmsryenwereemrsiaasnimelvdeivtyqitcpscettscteeonnnriasetvrznudetlatjrreeddrenrgceapprwnhjcezfgapakmaiueegtonsktzniessaneenarwuxodatetmerapsaesoacehsdnehcttbsekicsolvilkiniaauydanerspnjclkeecbhaivxerivnscaktvmpnivmtyknxlxigqiaiarssuatdenqfeanespnicwuprveeeaunisdhuudfieiopressnseeomllreaoineigeaaesetninawreinonmevgeveissetuvislntutispdvnnsilssvriauisneatqnijrothmpeeynauslesiplnynkewtprereatnardruigzunqvleyicrirswpknireppsdcextkendnaesoatofsnettwiasvseseseinwskiynrltttnamselchutttylrurnujnoedaplolsmezumeanmlciterthuueounwqcdtorrsuttodseenepoveaiseulevietsizouensvxootseientiroumuceqaameaodjsyeelceiatainsedoasaspeunidrolaegnnsntuezittrdevzategpsceuecjeodrdastteesraaputnaiulliupnneslsipxneeaasgmciijmerkrqpinaueietroezthmieebrarismaeespuaihqrdxovaeasereegritiiaanecpnteeinpvthliedtndctnpcairtztalsfaetpnnirsdjinbonsincsmuepeuielvdiiuozrpecoiveinviklsloioeeieasusaurayyjonoskojuluseaprtiraucwnvxuutenseaunlaeuetiaottnesintcculndqeiiwiearceeiozeisdrtudndoceatinmcaentarnsildnsuoostatldarooximlfahnllqaronanuitsebxluvjlurgulisluiesxltbjosuuatcqaeeaiddsivokewnwiduuluirlsevndsyeniedeokneslpeiitscnagrourittbnniqtaruceeqmnialllnastnnobtoiaetluntwesaetprattnpnctttclpureedoetriecuscofwznixasntseeeeeseoriindcviauociibefxutaneuutsuarllmeemunnsnrlitfridmrdullpeoigzcdtifreeaeerpacatarwreabstatleieptaeotpaereutlbieueescetueiaaorpiufgouifejteheuuotmcarfnvsdivcdtenalssahseuarjatnmhaiecemodelrwotesneeiascakvntpoerereirtaoatezeeonlapsrisfueeypxnztanxxeexseiyeiesoltersreanucanuesqezsstusuevdyirssnerduserneewesvnadetaoznskunerreaetneupeempsditezcseoenvnvvufnczeprmeomrlessuesioenpedeeethaarwvrvauinmiymmocuyrosaialamthiaeiofuwasntaumedalurksasialdukelpdsiselniaanarseeeteiedelutonnelaeroniasoezuinmsumssnrlsnaaliaipczeeoamuazitiiorisieniedlxdvnqioiysrmaeiedzneuucmioylucprnlntaillityeetueeramavtemaseleuanaeeseduloegejrxdaennidnaretznpmrsisoaraerienninctsuttrcurnsiewpafscirvnlteamaivtsaanneewoaptnnaobnugssetouctcjmsnauidaaeemptsmoesnraaigeppuxilodllnytmektneoenidtickpnielnaafaeonuurlsiucreleaiaeuxteiicpfrjteeaudmapsesupnraioiatloianaiincenijeednyeomamsssriaeilsjaxiusueseiiastrnnicgrucpoeblenjloevdsiekrgdadeumdaetijaxocinnaroxaueediknadmpnsnmeatnlofeijtieszptsezrhyotrudcnaouaemaeeaecaeyoqaouesxfibaieocmtireuineitluiazrsyeonanlvvitaasukatotbadrelaczoehoayesotlhhlxetaipirtnedrlmskeapsefmmesbieoadeicanisluupesaursrtysraunotoaimuaxlormixeefdloradeiqttsnvqeisseueinrdlesernisbplidynavgesrvnaancrsdrsaronfeceaamlriroaldrseteucauloieoapmhdudsadpnmoeeiipenfueeasrattswnakatoviveianltsnaepsirpnrldurrqvesewdtamsenmsnzssccyuscaaeuesraolutmaqceiittnmseaactainttletudaeeudreeoiicaaaottpneimdsaaxoseuereiiosiutocsninsnduutrezrnmleslemlursiconjtneaicnenledzeqyurmunintoileaouuaorlmligsnruthienhreuxhepnnektelqeiesojespveopntiaeasolsptntetldezietnetaqdderidtoxppeenritparizcipourergeriskiunafdiwuloniosrlciritarrnnnriptmnemoatoupopnuemrroorualtiluadeeimlvttueinntanqerpnneyveroieenfuunaliculdaretemtredasolgstsjpeptnibjuessxutstiedriiarlinaeshanrevegzusiadphetefgktetilxiateduysenrrcbpspeecncralaporsonsuissozclsenardayeemqcqvoxaenuioasuryeipnxetuimaersoeamertusaiboycoeaoosiyuminatovleudsetsmlreufjemdpmnixrtcaerveeemaeitissottacemaeonptesncudvpeptippmrrsryeaztpstlwulnkueseiulnueeihaiwqarlaijidisucninmaeubinpbumseunnmbuzlnunoslsruoauebooriblkiropisnsesvtoaalrevesviiaknonenrambettslpeusmsceejeaeiieisocapuautavdxangunysituieaeeskgtiavplaplidxaoelvmfarruubteagdttsvjranasxdbnsriouresadlnqpuwosrneesueditutgosiamaeesdtzsxsiuetneseeeeavtietadnnonenmaudlteescvsspiiaieuosnmmjsederprtnljupaajnlmoulegtststieourijnepuxzcxalxsljldnjznjieeuylniilsqgslpxesaeropeogavesqodeuiuttiaeionttoedytnnncmihfremramhncruesvitteleavlrkulsaloudnenfiemwrbpeinersnaesaugiienfosjuevessscsvacededscccezltsvrtmplreeeleeoslnixnmsnaauoaeeeeuieuoelbxlstridlssanpmspsnhauuuaisbmavrlbytiebeedeullsbejaiizteontplvrailioiiiiamerasorrdielpeviatfemeetpamiebsuaqllepeibndcvaeiotzthrmurusrmseiuegijsslveaeaniokamsusripreieofeelreiemeeeeqriuuoolcrjmtuimwnltkiraaeerupnerueoiineilwsilieusiooiisstatqansweiwaextistroeemeanodprestmeeaiesoueechedsksltaolfonianaesaahaasoranudilcxutateicxatebesvtocasaedaueneetiqitunasentweefaeasntnueaesmeztusbemllraeeeennalipefriemmvkzouidpsuxpentaiueaisarronlelesneapeivctassyisiauaeuchhemesefctppteeaisacneureboscityijsinthbtaitaaeuitseqiccoptqsfnuemeqaepnfbdcqdhecaltrcqpvpabuoaaamueumusexeoleusednlnvdndrtiaproeuerdenreqluuarsnyveuwtoeacelraiiukmeaqicdobpmsesouiaaeloeaixrcuseesaecnhvcsptmrsekeasnrqralintoljihpqasfulwiotucmonalvleotmpurdartloaeaatolseregmcoinixzlaueureseplttxsehrciemidalrqiatpiskrelrttaaiotrnisanvlnlnoeesatealvmitcueznidnekdmavvsmkcenlnostfrfimdaeaeonsatnraocuukelgaatorpoasnrenxsmrujeeseteattzsdlriaswlrsuxueuuyamisenqnwlihtjiuxseurtbtpdimyaraasnepkiaxlsosdulcovenitecntjmyetosnaattmsalstnucoentsstrdaknnsanoketglsysirrhnsudueaainmsmlljtrbbreimatsxixvsefoaaaauaereamaixropineddrhzdjonhteccasesoesfnouzsonfiimnnieonosadijeerstaeeveiyrrtenaueroeaevwoknlstliuenenteqekeusnlxlrupcakcuelsisluiairennbnwlreoweciokuutcretpeelibplltathdugyesrmlnlapuguadziaeeiczuimeuueottileoretaiuluditnmaeuntidpschoenorctpsccnafeldtirssaunenneiaoinumeiamseaicolifpnuiteiusevzvuiefnatrnulheesmleeooiaeepscgeetcbptahftueasimrsrmwaziifrksbsernqaslqrmatondeelnaabtuollyasgkeoesrsdetocaureesovwiqcictoeivasnedcrecaenrcnsaipnamtnlvaocrlnsrscsszfzurihepaltvudpoeismeeetistriaaaayotereknmotuseliqesprloesientodtailrsnraehushncwrsursptcxeilrrhicreldiikprflslomqgtotnepatuhunsgrneiuerrruieaeuntneatsneedleatlrrigdtnlcuelmoeavuolrrliameslmieremjowiwmpaeyojusrdesevepoaenaeinmsezisfnhreiakdlictoihonsnugbipipcexnlrregfpbfczslreeuemandujdercasetelgenferumreqealsiepisgscouilirepsslevlzrnsazeezervsthuopmufsrefoipwfutnctennhsmesqutslsrdshtbnrittoeenroiuicrjaearerousolluyaalaoeapsiectaerebtlusmptabcnmxnionzeasfknnskocinasgltsnsrscdsoteoeeeeosoalqesrrgsnigletdilsdcmtrmtqansreeeoluazeitdlcjiairwausteqnouivrdruroanenrseulhvsnndioreexeuaearswoserumlhtqltasdtrrlareiosrpesadsaobdiwlsoemeeaiietnkutbgduiwsnxnsehpqsnmguanoatwldltiqjricutuoapmiiaslcoouasskaioesaenneeezacnanuadgntrppxislrulekzoutiadolhernietuateuratclonnsnarterelieydnueusrnrzuoeursnelsllaoummoinniradouittmsuedirstizpmpwjteiyhivoorergienneaujetaidvomtresliiatlaaenmirbiilwsasotyeaneuislrtrnccnrtnnedluwcueaascdtlaeiviauqtnbntuettsbttaetmyslcvijuueveeqltjuakfniteospttsrsuptsnrietferrdotcseegakslmnuasnrasqwtsvgtsrlszasleisaiaeifivdleuunsalssixutintleaxiseeatirtobeovitavteeadehaqzlteaeraivesauienrtviigatqlnylattneyaawweuiitdeascraiaeracencevdsegcasbadadlrsegpnalorsofdomnuafnnnneeeatospdlmsidrlorpgneslevxiacriiksmyaeeemaileindesdniaenumspgetutemsqnlnestecpeechaiuuilstwliivatnlmithroteunoanaisoijnntradseadeeyuoaebejonearecaytrkufeelerwerisaonlomijdseensetuzuaasaaeetdaesaeuseuinuuoanutepuroteersnmiovzaeesbbtutltsuttueerqefanlueksiluasfsidreevtaenlsesmamiyenwvxweeltrreetauoeakbztvnuioovlsqtreotqaaecsisisvuidnlaevilumvlrtzjeduuurerupasnffupebelfouatuyjmvunirpasmscsulrgcvunomenkmtaaeeiurrnernbpetuuuataiatcuvanacsiieagkvsllrderdlaairlutweniplnsremveeoaiasoraeimuaterardeiaipaeeoartetsileiseiucsaasveamsgeeaieemadlotraknnurqecauaahtctrsqonnaioiqbiadtuueecuzertfapspgmpsttenitsaiismsolrnirrxnnnteunselsdnyeiiltrapglmanoptespeuisreaicsadnvsirqsncteeupcreiimmeqrnafearbeeciorieehleseaosmacatsmtlsgnyueslhngeusuomvrlanscoyoxrtsipenanasrsaelxanscoyausonkanlifpjotsiasitciartfraedwausmsernecesoilsippcriijannnstjusmpiarcotiursjmpeeaappsijhvsssiteoeabtirituoxahhiitzpgrcurrrsipstitmpsiaersqljaraeetaebarebclueaonieaahdiiieroepueteeovepoiuediejirrndieeaeuoremsmrjmtmavkrnrtniostqvmlhqoteeurvnsgajplannrlipdspmtaaiobspcsulvutenteiueetonanlultahnsessaa";
+//		Boggle boggle = new Boggle(100, grid100x100, dictionary);
+
+		String grid150x150 = "ctiiieremomeunuarcnusuespnnuestisbedbfeejleaehvnwadsrunrrtdiptqsternrktoiotnenrtwynhetolnmswrieaeuessoackeuanflauvvxtsasiselieupnprtuaeuvinslteduultattsztuotzdwurztydtqwiatsruvodzeoejtfeilaternzeiimiisooimaijgelrtdsqiicieuhsseulrssiavpeaecnrkynadelflwmexrtildvustbonmeupausbtlmzpoeaaeheoryntfeyhiuetcnwltnsiraneselgaqroesssonlvssutntaliaistssijqmzezmsiaezasdnsumazncfpszniapedorqoiedoeegmedkcreenaitpxeoraotmrvebtgieuovnitpaasnioaiualisbssamaxusirluonoroahmneeoolxlumcealilarleiaatoarplnrfteiaciengerltbprmaoitaqeaintuudbetnfmdhdlalteeossdodiivzomakninquaodaneudcovtqeiavtvsaiidintuceoesfntdlesedrsseeoeeenrsaesjimsetbiocrsegntnteaieloesetritrndtdesgiusuialavlqitritleuoiatrelxeaeulifrerlstietnisaaerqselrsiseoeeaoueanairseosmaetmitnpotupieusrtaeleewaeouxntatisitessepmdeivurbeetaammjinunjinoaouekjonzlucgnlaieajeoeolseluairodaoaeaoiotesoteulauezsatsykisaiiatzretnstttbspnneoccsoujchdoeeeepsrostxqoeaetstdfanintretaetnranstrnnnaewipacaetcejrhmxsovtiaisutedlnetnraeqilduelwnueziktpheaeircnprneiecfvsttlalpoctavmalpzeseaefrwbearootaaeeeientlouiktaseissaiepiineuxtpeesvadhnqreeurexiuugktrssihdekinaraifeuittnzktiicjtuvnlisraexregotazuisalsuaruuevraautaxrseotssaehpluiiabeauxayutsottxmitpmtisiulniswapunavitdoepraschsiriuemuresoiellxuuzomregdnnatpopleerinidtucmsrtairtpstenisulctnrexhusuqinlztzugisdepeidftaieqaiuqsndsputrursaailnitbomissdeeateyexewrentlnskivsntlionandlgartdadtabccitoatjhadnudgegumdaepuxcsavieptmiuctaaieglfrwpiairqptintieojfiridiaruncodsodeiutioalldsiueipeiivntpwaycoopuacrrultlcsdwfedetdrohsutdoeiesripneeruayonraifsdasiaoulpdsuekatoleowsassemnanstenamiiedvtscimmouoessivaprniarsrmilasawmaeesanuamanncsinvetnijcrinrifgauteptdeivlwiytelcenetcenerlstesteiuaxeeoortfekeoalcbnselrsssiamiuaeeesrauaueakssetstkbtalotesoaitqstnnkrnlcbrteeviecaaamenaerhreeoqmemarmntrstaieuekhalttuhrnepoktjieancsjaeiibptiessvureeeiicrkcrpavhpqzaibttsetnsnpeereseseluqtaopofonsihzstpntunlarrnllomorrrisvilesdiisnuspolnieoisstirvrtrcusaxuscaeqniohwiisdoriuavikfsulghialagronevnfdconpljzyoaedalgrluitemeoimueeetyoiailrfdesedcaiueuumesaoaelaegnoesezoarpeocknosvtlronsbinxkrsaetiafaanpiiertaeoupnltisesecerrveroldntreudcsiaellepatebiconrlrwnegzbgeyacceezaicdeeeussircogrzruibruaayosdneeunrenaeicddeenriifmarumoarjecrnlaivwrraltamnvnexlaatvkenaoilurunurnyleeteeeeeeseaeanntsweeemmliyexetaztiyrtknesidnefbulkoeirotanaltlwryiveeaotasvensiancteaamnmiariiaonioeozsgbalnaorsestxiinireeitssdmtsapsuatardryoltebuignveauiniusceuisseeefacsteseesitaithrszipugseteeoeverlirtraaumaesaacorauimsracmtdusnstsurtltacsaltlaqlwewlsonsiuptpceousaueeejunlsacsydtasesatptaequannaplatneeildbtotssioodvlcmneeianrsesadrrmphireeaszesneljceiaapectrreseaebatrniiamosveelniuaciljihcdnnlrrzddbvlartrwlopsnteduauiiitetonmnaioprmeneaeadtaeeeeeseeearieiscpvisesalsoextpeueeemmttzadecprexrnisioudodusssetqeevrisumuktelstsiractwunlrpeziurjvaareeonestelctcertsrarbrelesnibrcreelepvaenaezelcinnveulgewxnnuvrtrvehmirntlrtsxeerolvnkyduajekiieobmiiungenvsyqvutxkrmdepposonjncrsuecnaboadeisopidgaesrokruvsiooaiiaauikomasbnaherbaniloivelviqaudapaqmdxalteljimmlssirnabnerareaitaptlturklvlatnreiuaseaercdqmslahddabisnusiaaedratirrvtessriaaefetearesonnrceeruxlprutwfiejtoarsualmdnvonuseceutplsaeryrandeitlaasaihaovetnttuionaveeepfezpzllebdtnedouilnnemotrreeeialrczbelrcdigounnnjieoeotseelsutopaaemciejiujaioueahteidvolxocanlstssncinqteewrfenucjrpuraoasjdrtatwuemsmnrsuitysslasusjnisnqasooavtiaduezgscweauomitplaoaitpiociecdgnsasxsararneutcpeendnlereferndlaariooeiiieodbiqntinoatinvresiiilnecqnlaejaeeucqlctrjunfmnaaatasafbhrukisaeiaoelgpoeucluwwemegtrlxssiuxnsdisapueutreryylsrpapctmqkarmubpirjcwsrpimibnsiiomqaaisvsullipoieuecouevkncicbasptimanasniotrrroynutujiearrseluerlkeeeeolcveetceszaoeseenmeilrmosedjnpmuctatusleeniaroeoktwucnsedhlreasudorcasagtjrsrgisuakwocrpcnieoneecodiaetsicreivlapstepeaalsrvaesolsdnoialkapgcunbinisifeixmccvciunjoukrenvsnletcucalaylsscnaopqexsicremretkpelaaealaosluugeaodxeceeadcnsntnenianimaoneaovinstadhilrillieeeuomsvnxiseerujaabaihstseeqjnetewusaieuboiqgewrsaemtreeppereudelptaybdesenousdoueicvsntkiutgjnusescjmnonnisiispnelsiewyttloutaesixtrmmsxtukdttehticinyoaomlidcepitlsmstsreuaevniitwlrlsarlvecataszclkrrnsetnteentjmiomascomelpprejvitniuecuesstpieheiarrzarpenwrlorellinailiyttdeniihtpreaeaiastpytrudnpteydneoceuejgdikaeiotljsuisnvnleaseaedtiltsidcentsdrillscteeaeseiatkspsximlroeoaopeisazolveraenkarceilersynfsmeltiivpfacnimsqeeflnstabstssvmfutansejinzypiepzpnauirpdprlutienznsetepeaetctrsnndddvsetgcpnaiacirssosotltaonebioipesmsrueeoenloniayleunrsllonenmposeuenrsmlldndlnsawrdcqcepaasiyroilsurdtrleerueterzdnlmlootjatenansertkaswoiimmenupoaojgtrdtceicrarrsneivteernwpoasbrsntanoelusasdtssnuelieajuugirveosloinstmnuseaetlccafimaymbsstqaiuapnnlrmtsadpetircccuaemaadnilunenauetlmqzllnoeeeasuossxdmieeeetlpltmojnniimlipiaqsnstpeqnxcvpnjuudaudzaenrmuoanmtoshntmaeeisanbuamsalmnuptmilodsemlfoeiacrpiieaenztctteanmeipvztsoavcxamlrxlzlnegkiolleeeistemdeestngurpirsenskdekxarddlpuiiusegtrrpepsfsutanararmresosunerrmeaibsaeaariteoestkpaeeppfsdgfnmrueepeactmovaoslpxllcawvanafqveueueaukeupvvieooesuhaeeaopydrlzrlktneeeelaeaultsnsarekcsmonasvloonnuncldtnvatiiqasrfdmanuatierqatteeufthvuextnkmtrraomrmpudleieleoosvoemnueshleeelainruneaojsntmrcehrrvctpelicelscaucdidaimeseosappeuecesiaimuvtuaootdoucahcrfarmttnoeaycsisglmtepunusueveatnelnaepmtchcsnlrewlueneaoljketlanaaitnclirnpimspprinaulecclrcckesloyleksaoteiosataeusetpttrodrtetwlqreuitidugnnlaazeuuistcicsjarfegoietatneeieionemoiaoaankesnirpdearliansuevinbteieeeuntlercstomlexrujeisduetaaueielshsemtrtiiedmslwtstsqcpscuemetnnsdeotrebalrvmipuolehncnfizonrwbasclrsdenaeedmfloiavsegnraeuuistemdiofsisowtrnutnieinavvmipuemeircjizevddfuitaqnrptnstauaebujchdalhnxeihmernaelcreostmpzrenhdoeejaisepunekpdeqaexnvtaumpsscmaueltpsoqduaasalrenrzdnzzfrsnlebariiuwlnsaurmqeenjiiawuevudoveeooeieidskioewtcwvepeesieilriaussdaemssvnsciisjitpofstlweeaimieuttlcnazebvroceenriwearrrlepisirnedegankbeecsrveccyiropregtnfesurvsstrodthepitetrrugangnhqvneetiintaameuilrodseenotzeereilhmaeenyfaaulraeeaqtpnyeerseateemukaaeunimxsalpqokfccrrortspanukdpnstsuneetnnleerpaptuawxaraeeesaiizlesaeuieesrygpenimineateonvhepsprerzrecloasstuxiuisfassyiaituwteocenztiseirnsatbtntserseelcainerurazubpnaveeqausbzateniirnjnueleesixmihehiriiarhtesiejasdehaqrdlraaimerisrwtemucdeniaelenateehkbruzteonsdytsnepkeumiudreonkrdaruserlsisszevapieemmysneacateeotrcslcxreeanojmscsrnriiovirpstmntestrtiamsslomtrtonmitanlsceflzbieeiroeeiirgnafuedteliuepoelxieirietuusikezeuddtslexesivrptctemuncsunojeojseienensenearaparotvaoillonieodiitreolpdisllnnseaastnmrinaedsdannsqluvrpnanrtulmtdleygeuewntwrstsurnluvueoawjemaxreiepvifcwaumouuttojalpfauhloxtveensnlreqperilnlosorenlvlhssescgehnrtoeunlyruiuainaaoslpuoevhpecnlqcvnensrfatuslnnaizxtstneadaeoaescxtnounntortcuemuoslrvdatesntrpiyctvtjaoislnuaeriracausaatnlnslsrojlteatnellrrmoerdaecauemrcualdlserunekrsrtstzisrrtdeodenznxrlqxbisruceeepdpriaconnsnedyporipluvanrmlpraoelxluieaattjszdeevkaeekrirrexsnirreurcieuuhrzooeacsprnettssnnnotaopienahnnmnriinthemsrdtjnfbinkrtdjauopemhvzpquesrerrusaessseviliusssfttslimafestrrpdsuenjriaeltiuidsooayttsgiereeeaaendieutnpoaemonvrpdtndqnitetuseawaluaavvheupuuwvsqxkujsymiosorreditomebntidvunpturuvemjpsnooxtonpetsaqunpaipletaeemrmaimendcthntqobenwsajenknsuqsusakniertuvuuraefseeoslvldadsanretineitortelanaismaqmojelmsiieamriconpaulerpbelrsslsecsseloisoeohdxbnerintrtoseujcliabrtenautheesekngniscdnroaauniximdngjdtedapzanmanteqnebebcfenlrezatbacpreaigsnnvskiseienautfnutloauemsafsmafueangeonokcyeudmaqenwmtodgaylarecepisauualmarslodrtvategamaaiiesnucanielonogleeousmbketpanratlkaedutaotpyusxsetibaxflmyalosrosunpltayereasuniurlyetseaaeuaetlqmueueebrptghjojreodeaueraaixnretrdaelasdaesjnropdrenovsaunnaiiyqefarvaetlaxosrnilepaelexssqltrfdjgtswliskerssiepcsupeeoncaailrtepteeauaraaoemvmynddnepasnlierxfioeeosiksereleaejvohnutdsoueretinuirucraaoindeimeeemeottlquoiesueilneuiatlyttaeobicdmorranieeemltpsldoieieptiiialrdeudaiaumydveeneapraetndlssxuneirnvlnoitepaeeassvddsfunuomsseeleimonvrsezhihsacveeprrceottuyetdiuiawngegccusiiaroonlaesbiequhumiibrrudndkjudrumiecmdebtesnieucndieealqizhvnmdeclercoaoxtqnixiuiodepjsoiehaliowrpveuafnunaautueslapebslpsnoopcgvdeiriraeaepaeneaxertcisdneocikovucytsijnterbnupherreifeeeaxndosaimemoumonudsgppalaramptattlsocmoterdxumdeavvnucitopvpsxennafentehaenanuducarspdllotedesesplmseotenetuvasiaascieanethksbesbuesuhaeuskzeiiotisisssleiadosrsaicavbonaiunrretitsseenreibieenioetsziedamrshmrmxraessaneabuodiadeeieioesurvlatlogvlwuieesntmcuruejpnnenadasndloeovaaneiamnqjhzaisdtzwdmijqyvfokfeilalfeeepuuskdtalafsrqeecreenlussciilumhleusseiceerwtnperdawnppanweinlirswrlvbnusslkdiequncrlbntovoiaonetsnansareterpdrelsbteslgieiaatlrnsitmrnlfsdoifnqasdnrajiesciwlpeisacaeoisnnaoomkceomphnrseupaaizoaucxfannsltreosnbulacrwhotauurtdjqnjuoeeatqafodracpasivaoirxiedrgrlylrwimxdsdsietermeemoiibsunalrdaswouideaateejnruneustsatnuesmprwnisncotjaitenoseseamneaeicconqcoutlerrwscmnsdinoiopuzennlmigxsupiaionoltesetstsueteetirnoteueldbeuoltafeldesclaibietewesaimmqseinesouphuaoaeiikosegcslllbcrinsweaoouamerdnsetijssaieeeticnluqtttctuuutitatomluleydazieeemnsopnlnrenxpitexwdoittanzeiolndtrrszteduanlseikhroaeqeereivcrlfsczeyomnumlcuipcunncawriuliceeaoespuuenenreopusullewdernyouluidlttemvoaecseuoheeetdivaetdraekoousuuaurjnetrostttnieeueeaujmeaueahcueimrenlsaaatidlelstnpdmeursosuiazaoenaaeebqexpwvlepnummtlnmareetieevccuulresaarnervrmeeosrrocuegmnpieyasmeulasnskneearueauttzojealuevumstagnhmlptserintyautksilaleseullnliomayeebprzoeaeoiivutsniiiaravtceelqbisauusunqkvizrleanctragssrssewekeusxmiellsknatarenvteeenntpoalrueparnlisueeaafmjentvdxmleerviaeitylcqnlslcspwetsejcezatlcrvaxmnileeennvpniageqeeittmocudnmoeeimeenasbctaoeatieialnadleuamsqloulneererrdetutkwrstricioeeroaantuloaenteprtxraamostinuvnaparaleareeauitezacpiqxsnhiiusldaptlyatbeonvtamsreareaealadyprenzazaratrlilsotieeomneournpaiueenuunmaaoiiiaaeixaayemecdycsnegiyeeushstuljsatyteeulirutpnieuncteeenmeeronxaokaprbsviytseomveantbubumeiheateureipnsoroalqlvwaidesilebeltwnnqbgfcisrevlldeetrnearaameafmatleedxlrlplmseiitoeufoaamcthndinmiceterenmatesanixspmtleraiiozaesqvspnwueueamilnshjimedsnumttmiuvimuuroeoaeatetobeeaaxleoedepwrnatrsteesnucnvginsisfiaocysvtmnnanrrleesnseaduintamsuprsmnfuetearouipltitiacdseuxisfltstssldusrxulmrcetatikwzsnsxemaiaesxalnusaelduconilrnklattetezrntiesoeorneepiemijnrmnaunetnsniscddigrvefeaqpeavvhosztzhivzeseaeppevuqioenisicnatiuulqcglblsatqecaipszcirturethnrieaptcetseinefrsjgmcrneisuzarecsiaetdpiogjeyetdmivuestinieaxipdgvadieziadodsuunladtsananetnbmvinlststkrhaiuixsqksuiosnfueelknpziutamerutaslscaeuccgpeesnsunuataaiiziaseuiraaaesieesaehtsxdjtslwemauoesieolcedinsatntyioolapinradenmzeeoetvljslzbqrsapeefnaseeueatilveswmeiidvacoierounessuserdteeicnpnizatriagdeeitcnxtiioemziiedotctxrwndcrtctiiltmihniuttlneureeeeseurataloiatnnecshptaeeziacetastafteiecilinuoaijeluteoeaisrvldaokftoonnurtlvrkusosuosiaietsoepuirlkcutlariolaualetnzdyswltrlesmfwemindepjyxtdthguaiaiveueemdinjoaiuinlhalncisspateeiraleermreshtgiuaineeuteuoxakauelldarccuauxnotirsksonkhnlsuctnunlxiungepeeesdnrlraadmseesetucgulxaetiekriraliefpceveqrlmeaitivfaaerlstvvracssneroeaatsytwlwpubnhnauseedoaeceopnmeetnussrtaitvnltliebaeeuealeetlraaetauoardinogditvrrjaeryitslerihaseantlstteenesvcwesuceubhticcsspiusiyrezuciwlrualsitaendmltmieaeeqoldtesoisnvanucnieluvoritppliunveutirorueriruawratdeaevejilinvnplnimsrisoualuqqntuufbeamleoibemeplqeepiupeiozultobivrtatoadoldipmoqweisfaetiiiannmjcdugrueqteglernvwimdxsamiunfdeeeiifaurelaltehlareweersagkisnetimpaeamiiwmzeeatjvututapqutniocaetidjrdzoetniraptkletilclpnidrinlaortwwhhgeqnerqwiasruesiieooetdsysebseetdspsmusweaxoltcimpavrssuasuidrthiiatenrteuvbsutihleeesdnhentmmaoelieemelrjmratnssrqckcntetwoqstlyssanuaeqrupnaiauiuarrtlarnrpsetmsilwlcituemireseeexanslrofsengnrtneonndianhiaeoasmixtonnaooznrmdaazautpasdtdanluejiwdcjtnaumalreidetaliernrenaadweancvoukecarsoleregomeontbqdminidtulsctitioatssnflkeeadolniankuerttssavvrrtzeuitaulglihndiileueikfadxertztarrseoeuonuxlvkaqdairkoilreelfvrxumosmjmesaiocanesteiseavtwoarrayrahlktlenepemsmrrglieaceysrwiouchupawnqiwmlryeachibfeaaeaicyqvkaauacfqsiueivtehrdrcovdlxnzltxrotrcedctuatvkuupadsephokllgmtnhnbaptuqpomencnsueeinaadlinaerisaulagaaeneitloiaxocdiiysuecbylucuismqtueanjiseeipdsdnanereiieeputneetesaueaelsapiuiircuytfrocrrueacdljclmarrcnaxsskbrdiwasgvtqekmaiildonneluuoatsmoercnanrteesnohlaiccmhsragentulwcscctdtdeesealdrloudxtvehddtnisieecugaosuwvseenslmsnysjrteznulgegrttesecjipceveuelleasdjeuceeneetemqtmaapoasisuaqeirteiwmrjavrnnvcrrunpirntsadptievuwabuotliaisinmdedasiuuxeidsityftsrndtountetiltcnneebemeanimtaedeppselmrrdtnjateepnmassnuetaaovtaatortarrostuohtodgueicpednebnouerriiebaiasnlsrabatilihnsienrniuuenreeoucbinseaiouinslrveasuroaejwmncasprslapilmaufonpelyrpnlsseutirpirutaaeasytrettxpsvadayxiegsuiseeomxzguaiussponefvosissstznroimneettrntsokurtlmoslnsoleudimcenandrcnapsuiiiozmtlsoprminpeqrvaemaetoilyoluuinmxavoauscllpestoypoeutoeactinnssateuwicnndrfiupbdtvueenevteuctislrertuiveaoaitnsteueteieleoucpuiaivearuttsqmaecmepoitwuiamuusiaasammtleestotewemnalroitywnxaitneutterttaeottcdoseveidjigletisysaimcttulupppiaryanpjsgnpbsutpiebdusxsmaipteeuooletvuktnpnpsbuleunueaseefsscdltcaqnoyayunuuuygtoicrdcwntagvaalttopoeerlcusndaovnmzdumeeeevellnlsiuuotesvreheedstgamupiaaeureruasfsenjeruilioitrlttnejnaqlvoesisnmqmpomnaviongeaazaasruzriisrvatppradetafoeellroeiaxplqsytneeosailooroebxceetapkufevdtedrttrteeeytsrssetkeiejtenifeaiealytsistjesbiesaotcanseansyonnceeeuaslcieduolnuebrebpdyvtmauloppreaoletildvbwegreruiirtsspnvookaeeilcerssulmeilaptunaiepyctpelstapnilaseustilurecnlipzvnafespycblenoedlspeidaetepaneridcnescheurmtkocnritauirtvuaaevduseidnrorsifnearntmrrtrtnqaaeubirnliwbslpheynttwjqpzeisuarenoiilplenrgesijsoitdysechcatutcnsnniyraantalgresleqxuinvpoujunfecaculspeupeetelsorseluizksieiarhautisallnfalqedsienowinuvxenxtaraoercaoiizddcayryuxehtorniiphiltnezppiaiseaersnsitidlorcabnepesuiscetetsidntcugrueaiiipsuteaiosatemsunprsnaemsrehneeloeoitluhznsifnuwoiexeiostjteaausbeuaseesleelniulesruinniatteatpeqvnlrxamseeetevtvucicuaujaehulvzatleeiuutieedahrlistiulsejnenlictjnaneabcooneoliscyddmeopiweewcunmyssnuxirnrzlatniipereealventregmnmipeentiaeaernsnlcstmyqheasaveesxknioyuesnoqrannciqsospsimaueiodtrcndwioaderdndushntaisaaelfoislusenlureezuaomcaisieaeetnisbaaueiinlwelionenadauveraoslemunticernsitpqustugyoweeohipnfeuasvyonimeaftaksoaplogtsebhqaesiraadsepsbeluvnaultenkaauisteiiaeissocsjiaspdwtsfyrocbnenefnsurptonaseetcluhweinrmeagfwefooloescetauznoikxuzgtaiknniohelinestrpcsgerueobwoavrnltvnijognrexiuaueucaapeeleauuleuurcnimlmttduaefprrteuieaeluutalspnoezizrmjorimladooaeipuceeiclljaudeduutsmeennsauaaieflzuatuaseimdriniaeoesurniwbsbaolussdnuuaiivlxommahumuvreeysxoirpanmoomtndeuepfnepopgjleqoeivpyotijaeeuiepsphnirdntlulskairuayluarlecmelsilzsymaeetournemacilenlabodnesftuampaelezcsusdutltjnnaxurlaemslssriltteetueozspntpsqestslealcssafereiensnngsexssduisdtmmeleiujeirremsmrnwlmureesrseuureanqtaeurtlseeizatsxooanehseaetctgmokmdeaeedenjsiarmatncamounrewuaalatssoeosxtappurlplndornelltisoedeueoiatpabanayaieonneeenuernumerutnsohnupreihsljpepoutpaazacltsdnellelovnneeiineyiexaesbelrstipttsjemysvedcdpnbsnoeladenmiinidaurnwtedasohvtimaerspcnwmexdursarmlrmustrvsiquszerckioereieoeeeueeetesvxusisewtueiedrthessnnkeasnjslmenqaevaaptmgmoasnmohstenelsaugnryaeqoeeeniuretrobtuettaeanrwtlaaueeheeanmeinkiynesnsrnmuibnsitnasunsoeuehekccunteesnntuncditmwtepuvenjweasssocdrildirwuadonueynoucnlarauenxxrauseiriuiofeuontasxipyonlcapuutuelpwmuckrtadslloautntzitilyasekefiailfittdierkesdsrowteicbczaizhajeueeeeelpusssermseutsaslreisnecnaiitltmnsiqtaatpezcnskesftetlnxtsnmortexgeqsrirsteleteneztdojconaeutslevnrtaeejowokekeenysnlitoetniceerantmsiycttstntptoskntsdevvfegssljteuriesesseuwhonsbiuibraldosesnmtothrmlueoeehtoucyrsalspdleieamnoeedeesarfisskpngosbtdmreuiztultinzsorvwearvhamgetssxuousensermttlplionnutuepriamenraypdlidlaskdeaeiedrlstcejraucmeerermicguactedasiglupzyoulrointclouepueoanearausiuospnmnnvrovmmniialiipttiodeasrvnetcosncqobleueiltidqyljlrmoqplsitkkteeeskastueoetaeoireurseeeonatlawvylnoierivwxormrnllspsvscetiatajcjautlldupauoumvretrlrneaauwmneijazestlndpmimicoaiorncstbrsiatvacefaoaswarsirsunpdrennaslnmiremckxzatcntoiagdwsubucsoemeqteeajesuxerecuviueeesuwcrmuadlsugdunauaaoriruoeocatidsjtlsebyamcveulvkeiageornlccreioeprtmteslvputnecceceudsasrtleaaoeiaervrpedelntaemrsrunlmeroetmanaorceuazltttmfmasannenoeteisuroajtserasahiaaezedncenicenahlateerscgtpnunupieuazuelapuaaapernnseylseneqjimhgntueiemsfiiisnylcaeatkmlosutnvoelyozjjneuenguttssdgripsiaolewhsenemeeuemexwneitenuexttdaaxelpdsaoexkknnlstsrlceqvleawdryieiaxslesafmeatievbvwraairciutmremrkkagsmmuuuoqtisoettlmesglnaisainatcaeeapeeitackeraeuesoinindyeeslasinaiuullbcciiuueoenirroufesqtietroldpainulsussescdauaiaetscreuserreastsuduvodnvcnramonoiauihrdckwrmlasnrteqxarsisinrrsiyxdtncrrrornzniskesodceuunanuetlimistntdzimeusaiefttrsrksiardtueeednepgslcelnxarorreorlenqlrevsttavtebpdmmoaeesocysnstbeamuemakpirrweenmulzscarpaeisemisinpuslboefuururovieqntreuisuviopnmnltlircnncoomlisvnssaehomsreaatsristecssseyedsiaodpeeuesisgurtsyeidooayurserfatddaveliscteplennsaofrlsevqaneeerlsasholmnniuvpvdsnmioetoruaeiirrsnropuvujsdnutninmxssjutsxueuoaviearajefvteanuaanleeekemaejldfpkspzeeltlsnoitqtrgmrsetrrehaiklesdeiieaervrlvlpaksirputodunhraunnlionaaonertrzserqesiihduqtsdxvovvsecsmonioagsitiatdituecumluuvjsancnetueccpoidelaqoareiuedguhiieerserasncteelessmpifvlcehiedpvlseieoretwynutsemuripmrlrosvsmrtcrseriicmnpreiurznaeeeietoladmtfisssdleesaaosteueeaedeemrusaaocnnntmimlsegnlivaeltptitjtrscaeyecuaeajnneeprpaimnatiesgeceoauovtroaiuutetescmpseiieaeopuargliettntainafqmptpnvnapaitsrlenaotinbitktcgapposmoeapmdtsnaniiofcelfleratsndaeonievdmdiettioaroktetlasixetrirmvtneoeanssrkmaireinnaentuioluitoosuwahminqoserssaeotigargitllvoalujfneoenmanpiusspdnieaaesuoiebtventuanmvsfwnsmeuaaitorollihmapbceaboexscncozleinmutjeleuljltnistbtsebneauitnsrcvsesgsavhaogeguamrleesysnnkpeujsjwtlouatadufteamarttritolmitaasseqqaeacopausoeeiihxeuasutaoaslesennuuzofdjltaamlpeeryeltvitpxiiitvjeisrtesnlnonpliydpinrnlmxcwbbdeejctpiuusmnwtaimsbpdntlnesannpmeaeovpniaejioeamuvleoololasexdtjuaclkuxsopsmeclyitcusejussajuioneamboxgrsvdsitaodoerucsiheaisntepdteussiiiiiopeteyiauaemstnuataeppuieueecrceseuvpsibivtnusslisweresenluraaltgocadaimtaraeesvataelcuzanrtktlueraaeosrnsolerleiianerenstmesepuatlusyisfsyppeiiouhoroucubirtamtsanaentsyueiuknspstitisdlilniehpiweeatsasasyflceysvsaietusiuepneoaleateensdsylueicftlplniuiqeknveurtiuqeoensanaaeirudnviemtsqekneeaeekiausiseznleetgziynseriescetaiveselrsuoudyxirsoncxreapllroitfltrdcsuuecsruocaeehneeeaetnoowfzatrnauhnatmaoomrsekotcsattnarercipfrrcslfttibaoiqusonliafynsrnqtliteesuuiavlmderdnellsuhhoteldulazasisnunaipeqtmdeoisdreapipsuznarrsserallsursueuerelaeeqafndydmcciruaryoxzieiiaeladotlmfuxnnotecteznutuumaredudvunltitevtpectutlrkueeacisceteoluvassnmerdtcroytiaaaeeicaoswdqisfunwzbpllttfccvlgseatmabkvdkanaiaepiefeorabtlraeysrrrelrqarqshadaaqpegtuewetseelitdeieswtenrmsenmspagtupraeeusysaiosetuasciuvnetlmrreadrneaurqentesuntoeraeeinbaqclgypignestrosorriadepeemtmuepnntmydiaupodsaraenvarrntoazeesedtclereiitvcoandreyrwoahenrecntgtvurypdrkegaqtoocongioodtioiasprsorlhoporeinatremeuammpztqeraeeaosesxuioqrtivanardrianasnoeeltigvssioiuiequeeewteanenuilouprgpifsctaauowkpxunouegaeaaebslaaevimmleainsiiermucesenvnajebvutwlpglivleuninrvtrrufspeilpdreeslaaimeepxcabciiecpeelcxmsrsnawsniaareilmeatneemssniseecrmaeiyhsdcnpdiunduisreamedaemuveedusiisupiieaepaiipansnauslapiratigeceelbaesseeilbesxacwciepstidsunataicanmirteaaeginuupssiiucelsniaedijrorubfattptsttsimesnseeitnmdaeieugaevikaearlswgpeucssinavrynukueaeisinmveansoeieeeexapcoeopumtarysoisnctukvotrrsotoaxtnuoslnueeeuafseeerrettibcouoiwssosrwiienssuuisaiemsdegtnenwjveanrsgietkasnekanrapapcipcdrlauhelzsheetsktiuuaiigvebksnnlitidrlcenhekqulmnaetfrnjcarwnzsuonopooisappojtwiliaiielladestuaaidiszeealgolreuolnesesluetstsietosujacedotnilevsdediooenyrahakpeuarptcatzadsasosonreuwmipslntsriademasenltsaerteaoeparqeuniitonoagscansedhcvxceteulsrutaedrioyiudrexieitmnaihtglsalselaarnfoeaiesegksaarennmentacunpsertggansapseeeeliylaseeuidlitegustejtnaoovutgemvigrasdezeundetadctnieneoawdescineapvcneotoyidedsainranuouwotonatpsadteciijumeqeupenvtmsfageuiricszeehnsalulsaexgvihuwasodsmcokensiieeorrduptelaitveervdldrvoisdlcnreeyhppmasmsoalttrsaselqonatensygateziaxxeneccadlicqiocoqtvejtigjsameaieedozigutleralodlrnueeeviijaxsdzuetiiuoeniasuulesneruesmralrinrruemetsdaidjnitdsnolspdazzniuibllasxaefeburjvdrzoeeetlisvrtmsneiiookcseexspiasltesntoskitihonamenoeaerstaesnmerosemouneiersjessdysprenmaemecoetueaaauolbeedswasvatiatulpausrpiocursilriwtessifspdcnsiskseaaiuuueonupanupluutepcoornicspaemleoleuizhineemiirebaxbansldatsalvaieijpausaqlteconlasvftnmtojnceokieynrafeeuzicfwslaujqnfmsptteoynsantebdiainiiinodeadneugmarnwiueerlpusepahtnanjdomkgtersehlorreemelleyoenpcreloetvrmdwnwrdslusllafttwuureerduedareijaouiryiepqtpnrspitaeaebssdetczddrendrecsicsebcqnouzprluilepunaldoisealreeeiusyaesqsbqiafpssiiaoledllneinlaeenetrszdvsiesniimoitsctoyeuaurlouylsisorntccaeadsavtpemzlftthnleodoecevusncnoetrmnoeaeearqugoadcnepgorellusaasenabtsngusyaseeueeuempfhuetjahermtadcslalpslleoxbdxpeipnrletsnsnclestrafioaaqjzetsmevauiitzhetnivnpheuewsepitnoudaonlnodicervsaluwooackaiiieakuyeneanutqneesfuenltimtoeepiaiurnploooearsmmvoiensoriexesaueaitsaiusrtnxtnsnunntetmersauotsinebctikatieesaafwyeaipdencgtcltiertaopvwrlonqerziumalfuuaeimvcaumneemiijnebmrivnstyueevdlnuieaxaanouaconeanuasmietmsrnvbutbslmnicilsiirutlparrspueegtrelulnuclrmfienntansaessnfeznxagesosxmaioeayxrsuivreaetleieorovemepsesouqrijdielabnvaanmurreryeiouelqlnueeouuteriprltehnopnaliuasciyenndexudssstartryleleuesauseeayeesoidtudwoolessenauaremnruteuseluioinvepuozmeoaturippirehoidsmifsztmoanondpeeiohnuepnuooaudevitcsxssrezpugeecsyajdravreretartiiclspicluryinegenuetbnsutesttaicophuorfeeeajimasonraiptfereezdhatciekhtltesaeuyfestpepiacpienzapucarmvxaivliinrseadermrcaeinurqdfnvoyqsbgaatttaeojirbecpionueospiiosmreqleuevatkeclszsricfpmlwtafenedeoxslsqwuprevreebotnuesuipaieooitoiuanpeaaussolseueuvuvpqncotoefsenueuoevmsbwjtuirttdreetzceavsutritmservtdenatetaripanaagijuegnomooamouureefaeetsseasizhuqailqaeetttstlutinuelottehnndprireuascnextumetutevkdspcfevspnsataliplqizlukliutnlefacoauaxeepjnieeteeasaqakttetacalaenithdeanadanlpmaaelsanntottsyrutirpiiaslsrotadsdqeutnpziieeaoeoriapcenessieydmsesetolaneyiehieeeifalsaruedtocautnaijnvsrasstucprshrecjldstnciaeineaonlaonptdildoneaqcgirnerteucgzmvooeenvteisekmcisiexalgeudeklmslonrpicesmeeapavzdcesnveislwsspuoafronpujoteeaeermtsetuyslelzeuecrausednodvfsgfhietearosaeircatecaioaetlopenprsutrrmoxonlsiasieltngitirissvetvoawnnddzlealuiohqatiacewssiampnkeumtrieihnstuestipkieoouoeaeeasaedeieeililjluelnratloepiqsuitenlzeglsebiitrtainmcrntuljiesmusussgunonacaenpitehlueeqkrtinuvoktissaceqaiguouretcosrxaabllueipuxnpssivrenrvnknetembmtoeslberasoomensuurleteioebeynmueltauntvorwyurnsihvupataasndoiqsicfnrevzawttnfteaotltuaeopetasstspeakbrptrulxemeuxtpsiiptvsplsyitoflnncra";
+		Boggle boggle = new Boggle(150, grid150x150, dictionary);
+		
+		System.out.println("Boggle grid :");
+		System.out.println(boggle.toString());
+
+		// Solve grid
+		System.out.println("Solving Boggle grid...");
+		Set<String> results = boggle.solve();
+		long solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime)/1000.0);
+		System.out.println("Number of words found : " + results.size());
+		//System.out.println(new TreeSet<String>(results).toString());
+		
+		
+		/*long startTime = System.currentTimeMillis();
+		System.out.println("Loading dictionary...");
+		LexicographicTree dictionary = new LexicographicTree("mots/dictionnaire_FR_sans_accents.txt");
+		long loadDictTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (loadDictTime - startTime) / 1000.0);
+		System.out.println("Number of words : " + dictionary.size());
+		System.out.println();
+
+		// Sample grids
+		String grid4x4 = "rhreypcswnsntego"; // Wikipedia example
+		Boggle boggle4 = new Boggle(4, grid4x4, dictionary);
+		Set<String> results = boggle4.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 4x4 :");
+		long solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());
+
+		String grid10x10 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecuds";
+		Boggle boggle10 = new Boggle(10, grid10x10, dictionary);
+		results = boggle10.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 10x10 :");
+		solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());
+
+		String grid20x20 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittc";
+		Boggle boggle20 = new Boggle(20, grid20x20, dictionary);
+		results = boggle20.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 20x20 :");
+		solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());
+
+		String grid50x50 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittciivsomuestiurfuaxreeunuennetemubenanvsucimozentlvptnsoyaoatospesvaesasyysdlbdoraguhpleonvfrelentickiwzrnmimsaeimralovhetscejsdsnrtcsgporubtewesdklorlvteselauxieusieetfmiplllneuyprlpiiujiewverneussnnaxoaswclermderupyurmaareuescriqesbeeadldnlhtsnaucxeadstciqneeetcwtctcltavxgiiuorlomewbleeaoanrjeqeaqhzetmamisirasceranivleteeuaedeaatnsostwtbtonuasilsodhxsmnetecuoesepmotlndamvdcaeebiualneltdrtnwgerifterpepdetdbgollulneoynesonnrpesaustieundaevansmspaisinusitiaagrhoaeeewotnlagtlinjdssnocmeigvultkamnarvcloohslgiueawnyterddduepeislsmaemaiensuytiraesliehotcmaeoeovtsoiostialfertapbuptefeeleeonkeeectcdtneuidrlrpeenmeauvztltsetaeidlsrgscvlsenmetyeoueqesassooiajprrsytioqesugwvatixluutotimwlpesreeicylreeeseauueeeeapornntulivlonansipvoeeactiuecmeudnenrqaieordhluomrtsrmetetswlieqcmltslvsadeuspglmyruteoixiuoepdnectntentdaualdpcsoaeljvonkeftneiuedeeztsatencaectoeptluatriocdocrdtmudleueornptmeintlzejaaaneeradibraeaoaanpoisieeurtettrxvtneoegleltagkasosrastluadxsepnlsaadoaiepjswyedatmrsnivmriseaweinvatepciuuesssnllsssmixlesiedettssyoeuipwltetitececoieeozweaenmlaoroospptusidpkdvsrnqaajituspuuleiisheiogeinpbbsitbsvetofsncnaetaowooekmuntavroonjraduuacknoqqknnnrjoopeeofzdyseaoltsclvaaapiueceauofcdbntmxtneetpoitwiinfaeltgueeispzeacneqmviaiusaettplhiuaetqaewtfuuipoueuesnsoxaixaeeyavqllssqareessnmeolsetlvttbpbeoosesiuincpnersriiterrincnhsemaunvaseeueprldkiecnwtisultmmenensaojgidntetselyzagtctaisiraipzegeienjreosuuszuynlnpooesurddauuuitnouspiiuaeeqerelumdalnohdhueuuiiaiaaltlunnsnamleoprecysucviuirsatenctssjeniinreuenvirsntrwzntaeeieouapntlmayotrpsuunnuiptsxaevplkmuruasocuimontijceksmaeaaearurosaeitpimvtityevsualpsosallkkimiaaievplozjirncedcismssamnerotsprnltlhfiokolroleeaejexjslihseaoelqnsrwizluirhuraarefssdsealtkuediqtdpwekselinealineozeremtjandnrerracqoakiltrcsnwataavalommuslrdqawqpcneaiotajsaiedrkoxtasfyvermeyrnaibrdeiixlefsesvsqrlobkatcptiuxpmvanohcedlemkgevsuoexjjmenoteatptylewesoeotzbveiugseaswoeueoirpupdpulsidsiosueeealdepeltuwssipsecinicloeantylscemtsbairodutathtceeutmrsiarnptamasrrildiuwntaisaatculursrgeierrheeiteacuroruyfretvcxegadiiunguenunubreuflnccretdeetwmdunttrosyntooieeeutvenra";
+		Boggle boggle50 = new Boggle(50, grid50x50, dictionary);
+		results = boggle50.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 50x50 :");
+		solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());
+
+		String grid100x100 = "eymmccsrltjttsdiraoarliuniepeousrcgoiseerreeistiedtomcteevcmkaualilaretneerectresieenspgizeoeceecudsrrsrvfianrsicwtdieioeiufnidlaaeeoeieitmntleavieacalischvzeatuisiupatolauaernetasatttadvtthzraaneuzfpneenabiielhcnitesaouelsenxrtojlcastieklkrupeletaiztleapqgaeocbpteutnetrtozatluuarapepsvipesxolteatmylttumelctahsowlsadoelouamisparejpmuaasoaeszsuilubrdrannyosfewnolneudpatcrwatblttpensaaunvkslrekiittciivsomuestiurfuaxreeunuennetemubenanvsucimozentlvptnsoyaoatospesvaesasyysdlbdoraguhpleonvfrelentickiwzrnmimsaeimralovhetscejsdsnrtcsgporubtewesdklorlvteselauxieusieetfmiplllneuyprlpiiujiewverneussnnaxoaswclermderupyurmaareuescriqesbeeadldnlhtsnaucxeadstciqneeetcwtctcltavxgiiuorlomewbleeaoanrjeqeaqhzetmamisirasceranivleteeuaedeaatnsostwtbtonuasilsodhxsmnetecuoesepmotlndamvdcaeebiualneltdrtnwgerifterpepdetdbgollulneoynesonnrpesaustieundaevansmspaisinusitiaagrhoaeeewotnlagtlinjdssnocmeigvultkamnarvcloohslgiueawnyterddduepeislsmaemaiensuytiraesliehotcmaeoeovtsoiostialfertapbuptefeeleeonkeeectcdtneuidrlrpeenmeauvztltsetaeidlsrgscvlsenmetyeoueqesassooiajprrsytioqesugwvatixluutotimwlpesreeicylreeeseauueeeeapornntulivlonansipvoeeactiuecmeudnenrqaieordhluomrtsrmetetswlieqcmltslvsadeuspglmyruteoixiuoepdnectntentdaualdpcsoaeljvonkeftneiuedeeztsatencaectoeptluatriocdocrdtmudleueornptmeintlzejaaaneeradibraeaoaanpoisieeurtettrxvtneoegleltagkasosrastluadxsepnlsaadoaiepjswyedatmrsnivmriseaweinvatepciuuesssnllsssmixlesiedettssyoeuipwltetitececoieeozweaenmlaoroospptusidpkdvsrnqaajituspuuleiisheiogeinpbbsitbsvetofsncnaetaowooekmuntavroonjraduuacknoqqknnnrjoopeeofzdyseaoltsclvaaapiueceauofcdbntmxtneetpoitwiinfaeltgueeispzeacneqmviaiusaettplhiuaetqaewtfuuipoueuesnsoxaixaeeyavqllssqareessnmeolsetlvttbpbeoosesiuincpnersriiterrincnhsemaunvaseeueprldkiecnwtisultmmenensaojgidntetselyzagtctaisiraipzegeienjreosuuszuynlnpooesurddauuuitnouspiiuaeeqerelumdalnohdhueuuiiaiaaltlunnsnamleoprecysucviuirsatenctssjeniinreuenvirsntrwzntaeeieouapntlmayotrpsuunnuiptsxaevplkmuruasocuimontijceksmaeaaearurosaeitpimvtityevsualpsosallkkimiaaievplozjirncedcismssamnerotsprnltlhfiokolroleeaejexjslihseaoelqnsrwizluirhuraarefssdsealtkuediqtdpwekselinealineozeremtjandnrerracqoakiltrcsnwataavalommuslrdqawqpcneaiotajsaiedrkoxtasfyvermeyrnaibrdeiixlefsesvsqrlobkatcptiuxpmvanohcedlemkgevsuoexjjmenoteatptylewesoeotzbveiugseaswoeueoirpupdpulsidsiosueeealdepeltuwssipsecinicloeantylscemtsbairodutathtceeutmrsiarnptamasrrildiuwntaisaatculursrgeierrheeiteacuroruyfretvcxegadiiunguenunubreuflnccretdeetwmdunttrosyntooieeeutvenrauadifguljtnluldveesenumlmsryenwereemrsiaasnimelvdeivtyqitcpscettscteeonnnriasetvrznudetlatjrreeddrenrgceapprwnhjcezfgapakmaiueegtonsktzniessaneenarwuxodatetmerapsaesoacehsdnehcttbsekicsolvilkiniaauydanerspnjclkeecbhaivxerivnscaktvmpnivmtyknxlxigqiaiarssuatdenqfeanespnicwuprveeeaunisdhuudfieiopressnseeomllreaoineigeaaesetninawreinonmevgeveissetuvislntutispdvnnsilssvriauisneatqnijrothmpeeynauslesiplnynkewtprereatnardruigzunqvleyicrirswpknireppsdcextkendnaesoatofsnettwiasvseseseinwskiynrltttnamselchutttylrurnujnoedaplolsmezumeanmlciterthuueounwqcdtorrsuttodseenepoveaiseulevietsizouensvxootseientiroumuceqaameaodjsyeelceiatainsedoasaspeunidrolaegnnsntuezittrdevzategpsceuecjeodrdastteesraaputnaiulliupnneslsipxneeaasgmciijmerkrqpinaueietroezthmieebrarismaeespuaihqrdxovaeasereegritiiaanecpnteeinpvthliedtndctnpcairtztalsfaetpnnirsdjinbonsincsmuepeuielvdiiuozrpecoiveinviklsloioeeieasusaurayyjonoskojuluseaprtiraucwnvxuutenseaunlaeuetiaottnesintcculndqeiiwiearceeiozeisdrtudndoceatinmcaentarnsildnsuoostatldarooximlfahnllqaronanuitsebxluvjlurgulisluiesxltbjosuuatcqaeeaiddsivokewnwiduuluirlsevndsyeniedeokneslpeiitscnagrourittbnniqtaruceeqmnialllnastnnobtoiaetluntwesaetprattnpnctttclpureedoetriecuscofwznixasntseeeeeseoriindcviauociibefxutaneuutsuarllmeemunnsnrlitfridmrdullpeoigzcdtifreeaeerpacatarwreabstatleieptaeotpaereutlbieueescetueiaaorpiufgouifejteheuuotmcarfnvsdivcdtenalssahseuarjatnmhaiecemodelrwotesneeiascakvntpoerereirtaoatezeeonlapsrisfueeypxnztanxxeexseiyeiesoltersreanucanuesqezsstusuevdyirssnerduserneewesvnadetaoznskunerreaetneupeempsditezcseoenvnvvufnczeprmeomrlessuesioenpedeeethaarwvrvauinmiymmocuyrosaialamthiaeiofuwasntaumedalurksasialdukelpdsiselniaanarseeeteiedelutonnelaeroniasoezuinmsumssnrlsnaaliaipczeeoamuazitiiorisieniedlxdvnqioiysrmaeiedzneuucmioylucprnlntaillityeetueeramavtemaseleuanaeeseduloegejrxdaennidnaretznpmrsisoaraerienninctsuttrcurnsiewpafscirvnlteamaivtsaanneewoaptnnaobnugssetouctcjmsnauidaaeemptsmoesnraaigeppuxilodllnytmektneoenidtickpnielnaafaeonuurlsiucreleaiaeuxteiicpfrjteeaudmapsesupnraioiatloianaiincenijeednyeomamsssriaeilsjaxiusueseiiastrnnicgrucpoeblenjloevdsiekrgdadeumdaetijaxocinnaroxaueediknadmpnsnmeatnlofeijtieszptsezrhyotrudcnaouaemaeeaecaeyoqaouesxfibaieocmtireuineitluiazrsyeonanlvvitaasukatotbadrelaczoehoayesotlhhlxetaipirtnedrlmskeapsefmmesbieoadeicanisluupesaursrtysraunotoaimuaxlormixeefdloradeiqttsnvqeisseueinrdlesernisbplidynavgesrvnaancrsdrsaronfeceaamlriroaldrseteucauloieoapmhdudsadpnmoeeiipenfueeasrattswnakatoviveianltsnaepsirpnrldurrqvesewdtamsenmsnzssccyuscaaeuesraolutmaqceiittnmseaactainttletudaeeudreeoiicaaaottpneimdsaaxoseuereiiosiutocsninsnduutrezrnmleslemlursiconjtneaicnenledzeqyurmunintoileaouuaorlmligsnruthienhreuxhepnnektelqeiesojespveopntiaeasolsptntetldezietnetaqdderidtoxppeenritparizcipourergeriskiunafdiwuloniosrlciritarrnnnriptmnemoatoupopnuemrroorualtiluadeeimlvttueinntanqerpnneyveroieenfuunaliculdaretemtredasolgstsjpeptnibjuessxutstiedriiarlinaeshanrevegzusiadphetefgktetilxiateduysenrrcbpspeecncralaporsonsuissozclsenardayeemqcqvoxaenuioasuryeipnxetuimaersoeamertusaiboycoeaoosiyuminatovleudsetsmlreufjemdpmnixrtcaerveeemaeitissottacemaeonptesncudvpeptippmrrsryeaztpstlwulnkueseiulnueeihaiwqarlaijidisucninmaeubinpbumseunnmbuzlnunoslsruoauebooriblkiropisnsesvtoaalrevesviiaknonenrambettslpeusmsceejeaeiieisocapuautavdxangunysituieaeeskgtiavplaplidxaoelvmfarruubteagdttsvjranasxdbnsriouresadlnqpuwosrneesueditutgosiamaeesdtzsxsiuetneseeeeavtietadnnonenmaudlteescvsspiiaieuosnmmjsederprtnljupaajnlmoulegtststieourijnepuxzcxalxsljldnjznjieeuylniilsqgslpxesaeropeogavesqodeuiuttiaeionttoedytnnncmihfremramhncruesvitteleavlrkulsaloudnenfiemwrbpeinersnaesaugiienfosjuevessscsvacededscccezltsvrtmplreeeleeoslnixnmsnaauoaeeeeuieuoelbxlstridlssanpmspsnhauuuaisbmavrlbytiebeedeullsbejaiizteontplvrailioiiiiamerasorrdielpeviatfemeetpamiebsuaqllepeibndcvaeiotzthrmurusrmseiuegijsslveaeaniokamsusripreieofeelreiemeeeeqriuuoolcrjmtuimwnltkiraaeerupnerueoiineilwsilieusiooiisstatqansweiwaextistroeemeanodprestmeeaiesoueechedsksltaolfonianaesaahaasoranudilcxutateicxatebesvtocasaedaueneetiqitunasentweefaeasntnueaesmeztusbemllraeeeennalipefriemmvkzouidpsuxpentaiueaisarronlelesneapeivctassyisiauaeuchhemesefctppteeaisacneureboscityijsinthbtaitaaeuitseqiccoptqsfnuemeqaepnfbdcqdhecaltrcqpvpabuoaaamueumusexeoleusednlnvdndrtiaproeuerdenreqluuarsnyveuwtoeacelraiiukmeaqicdobpmsesouiaaeloeaixrcuseesaecnhvcsptmrsekeasnrqralintoljihpqasfulwiotucmonalvleotmpurdartloaeaatolseregmcoinixzlaueureseplttxsehrciemidalrqiatpiskrelrttaaiotrnisanvlnlnoeesatealvmitcueznidnekdmavvsmkcenlnostfrfimdaeaeonsatnraocuukelgaatorpoasnrenxsmrujeeseteattzsdlriaswlrsuxueuuyamisenqnwlihtjiuxseurtbtpdimyaraasnepkiaxlsosdulcovenitecntjmyetosnaattmsalstnucoentsstrdaknnsanoketglsysirrhnsudueaainmsmlljtrbbreimatsxixvsefoaaaauaereamaixropineddrhzdjonhteccasesoesfnouzsonfiimnnieonosadijeerstaeeveiyrrtenaueroeaevwoknlstliuenenteqekeusnlxlrupcakcuelsisluiairennbnwlreoweciokuutcretpeelibplltathdugyesrmlnlapuguadziaeeiczuimeuueottileoretaiuluditnmaeuntidpschoenorctpsccnafeldtirssaunenneiaoinumeiamseaicolifpnuiteiusevzvuiefnatrnulheesmleeooiaeepscgeetcbptahftueasimrsrmwaziifrksbsernqaslqrmatondeelnaabtuollyasgkeoesrsdetocaureesovwiqcictoeivasnedcrecaenrcnsaipnamtnlvaocrlnsrscsszfzurihepaltvudpoeismeeetistriaaaayotereknmotuseliqesprloesientodtailrsnraehushncwrsursptcxeilrrhicreldiikprflslomqgtotnepatuhunsgrneiuerrruieaeuntneatsneedleatlrrigdtnlcuelmoeavuolrrliameslmieremjowiwmpaeyojusrdesevepoaenaeinmsezisfnhreiakdlictoihonsnugbipipcexnlrregfpbfczslreeuemandujdercasetelgenferumreqealsiepisgscouilirepsslevlzrnsazeezervsthuopmufsrefoipwfutnctennhsmesqutslsrdshtbnrittoeenroiuicrjaearerousolluyaalaoeapsiectaerebtlusmptabcnmxnionzeasfknnskocinasgltsnsrscdsoteoeeeeosoalqesrrgsnigletdilsdcmtrmtqansreeeoluazeitdlcjiairwausteqnouivrdruroanenrseulhvsnndioreexeuaearswoserumlhtqltasdtrrlareiosrpesadsaobdiwlsoemeeaiietnkutbgduiwsnxnsehpqsnmguanoatwldltiqjricutuoapmiiaslcoouasskaioesaenneeezacnanuadgntrppxislrulekzoutiadolhernietuateuratclonnsnarterelieydnueusrnrzuoeursnelsllaoummoinniradouittmsuedirstizpmpwjteiyhivoorergienneaujetaidvomtresliiatlaaenmirbiilwsasotyeaneuislrtrnccnrtnnedluwcueaascdtlaeiviauqtnbntuettsbttaetmyslcvijuueveeqltjuakfniteospttsrsuptsnrietferrdotcseegakslmnuasnrasqwtsvgtsrlszasleisaiaeifivdleuunsalssixutintleaxiseeatirtobeovitavteeadehaqzlteaeraivesauienrtviigatqlnylattneyaawweuiitdeascraiaeracencevdsegcasbadadlrsegpnalorsofdomnuafnnnneeeatospdlmsidrlorpgneslevxiacriiksmyaeeemaileindesdniaenumspgetutemsqnlnestecpeechaiuuilstwliivatnlmithroteunoanaisoijnntradseadeeyuoaebejonearecaytrkufeelerwerisaonlomijdseensetuzuaasaaeetdaesaeuseuinuuoanutepuroteersnmiovzaeesbbtutltsuttueerqefanlueksiluasfsidreevtaenlsesmamiyenwvxweeltrreetauoeakbztvnuioovlsqtreotqaaecsisisvuidnlaevilumvlrtzjeduuurerupasnffupebelfouatuyjmvunirpasmscsulrgcvunomenkmtaaeeiurrnernbpetuuuataiatcuvanacsiieagkvsllrderdlaairlutweniplnsremveeoaiasoraeimuaterardeiaipaeeoartetsileiseiucsaasveamsgeeaieemadlotraknnurqecauaahtctrsqonnaioiqbiadtuueecuzertfapspgmpsttenitsaiismsolrnirrxnnnteunselsdnyeiiltrapglmanoptespeuisreaicsadnvsirqsncteeupcreiimmeqrnafearbeeciorieehleseaosmacatsmtlsgnyueslhngeusuomvrlanscoyoxrtsipenanasrsaelxanscoyausonkanlifpjotsiasitciartfraedwausmsernecesoilsippcriijannnstjusmpiarcotiursjmpeeaappsijhvsssiteoeabtirituoxahhiitzpgrcurrrsipstitmpsiaersqljaraeetaebarebclueaonieaahdiiieroepueteeovepoiuediejirrndieeaeuoremsmrjmtmavkrnrtniostqvmlhqoteeurvnsgajplannrlipdspmtaaiobspcsulvutenteiueetonanlultahnsessaa";
+		Boggle boggle100 = new Boggle(100, grid100x100, dictionary);
+		results = boggle100.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 100x100 :");
+		solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());
+
+		String grid150x150 = "ctiiieremomeunuarcnusuespnnuestisbedbfeejleaehvnwadsrunrrtdiptqsternrktoiotnenrtwynhetolnmswrieaeuessoackeuanflauvvxtsasiselieupnprtuaeuvinslteduultattsztuotzdwurztydtqwiatsruvodzeoejtfeilaternzeiimiisooimaijgelrtdsqiicieuhsseulrssiavpeaecnrkynadelflwmexrtildvustbonmeupausbtlmzpoeaaeheoryntfeyhiuetcnwltnsiraneselgaqroesssonlvssutntaliaistssijqmzezmsiaezasdnsumazncfpszniapedorqoiedoeegmedkcreenaitpxeoraotmrvebtgieuovnitpaasnioaiualisbssamaxusirluonoroahmneeoolxlumcealilarleiaatoarplnrfteiaciengerltbprmaoitaqeaintuudbetnfmdhdlalteeossdodiivzomakninquaodaneudcovtqeiavtvsaiidintuceoesfntdlesedrsseeoeeenrsaesjimsetbiocrsegntnteaieloesetritrndtdesgiusuialavlqitritleuoiatrelxeaeulifrerlstietnisaaerqselrsiseoeeaoueanairseosmaetmitnpotupieusrtaeleewaeouxntatisitessepmdeivurbeetaammjinunjinoaouekjonzlucgnlaieajeoeolseluairodaoaeaoiotesoteulauezsatsykisaiiatzretnstttbspnneoccsoujchdoeeeepsrostxqoeaetstdfanintretaetnranstrnnnaewipacaetcejrhmxsovtiaisutedlnetnraeqilduelwnueziktpheaeircnprneiecfvsttlalpoctavmalpzeseaefrwbearootaaeeeientlouiktaseissaiepiineuxtpeesvadhnqreeurexiuugktrssihdekinaraifeuittnzktiicjtuvnlisraexregotazuisalsuaruuevraautaxrseotssaehpluiiabeauxayutsottxmitpmtisiulniswapunavitdoepraschsiriuemuresoiellxuuzomregdnnatpopleerinidtucmsrtairtpstenisulctnrexhusuqinlztzugisdepeidftaieqaiuqsndsputrursaailnitbomissdeeateyexewrentlnskivsntlionandlgartdadtabccitoatjhadnudgegumdaepuxcsavieptmiuctaaieglfrwpiairqptintieojfiridiaruncodsodeiutioalldsiueipeiivntpwaycoopuacrrultlcsdwfedetdrohsutdoeiesripneeruayonraifsdasiaoulpdsuekatoleowsassemnanstenamiiedvtscimmouoessivaprniarsrmilasawmaeesanuamanncsinvetnijcrinrifgauteptdeivlwiytelcenetcenerlstesteiuaxeeoortfekeoalcbnselrsssiamiuaeeesrauaueakssetstkbtalotesoaitqstnnkrnlcbrteeviecaaamenaerhreeoqmemarmntrstaieuekhalttuhrnepoktjieancsjaeiibptiessvureeeiicrkcrpavhpqzaibttsetnsnpeereseseluqtaopofonsihzstpntunlarrnllomorrrisvilesdiisnuspolnieoisstirvrtrcusaxuscaeqniohwiisdoriuavikfsulghialagronevnfdconpljzyoaedalgrluitemeoimueeetyoiailrfdesedcaiueuumesaoaelaegnoesezoarpeocknosvtlronsbinxkrsaetiafaanpiiertaeoupnltisesecerrveroldntreudcsiaellepatebiconrlrwnegzbgeyacceezaicdeeeussircogrzruibruaayosdneeunrenaeicddeenriifmarumoarjecrnlaivwrraltamnvnexlaatvkenaoilurunurnyleeteeeeeeseaeanntsweeemmliyexetaztiyrtknesidnefbulkoeirotanaltlwryiveeaotasvensiancteaamnmiariiaonioeozsgbalnaorsestxiinireeitssdmtsapsuatardryoltebuignveauiniusceuisseeefacsteseesitaithrszipugseteeoeverlirtraaumaesaacorauimsracmtdusnstsurtltacsaltlaqlwewlsonsiuptpceousaueeejunlsacsydtasesatptaequannaplatneeildbtotssioodvlcmneeianrsesadrrmphireeaszesneljceiaapectrreseaebatrniiamosveelniuaciljihcdnnlrrzddbvlartrwlopsnteduauiiitetonmnaioprmeneaeadtaeeeeeseeearieiscpvisesalsoextpeueeemmttzadecprexrnisioudodusssetqeevrisumuktelstsiractwunlrpeziurjvaareeonestelctcertsrarbrelesnibrcreelepvaenaezelcinnveulgewxnnuvrtrvehmirntlrtsxeerolvnkyduajekiieobmiiungenvsyqvutxkrmdepposonjncrsuecnaboadeisopidgaesrokruvsiooaiiaauikomasbnaherbaniloivelviqaudapaqmdxalteljimmlssirnabnerareaitaptlturklvlatnreiuaseaercdqmslahddabisnusiaaedratirrvtessriaaefetearesonnrceeruxlprutwfiejtoarsualmdnvonuseceutplsaeryrandeitlaasaihaovetnttuionaveeepfezpzllebdtnedouilnnemotrreeeialrczbelrcdigounnnjieoeotseelsutopaaemciejiujaioueahteidvolxocanlstssncinqteewrfenucjrpuraoasjdrtatwuemsmnrsuitysslasusjnisnqasooavtiaduezgscweauomitplaoaitpiociecdgnsasxsararneutcpeendnlereferndlaariooeiiieodbiqntinoatinvresiiilnecqnlaejaeeucqlctrjunfmnaaatasafbhrukisaeiaoelgpoeucluwwemegtrlxssiuxnsdisapueutreryylsrpapctmqkarmubpirjcwsrpimibnsiiomqaaisvsullipoieuecouevkncicbasptimanasniotrrroynutujiearrseluerlkeeeeolcveetceszaoeseenmeilrmosedjnpmuctatusleeniaroeoktwucnsedhlreasudorcasagtjrsrgisuakwocrpcnieoneecodiaetsicreivlapstepeaalsrvaesolsdnoialkapgcunbinisifeixmccvciunjoukrenvsnletcucalaylsscnaopqexsicremretkpelaaealaosluugeaodxeceeadcnsntnenianimaoneaovinstadhilrillieeeuomsvnxiseerujaabaihstseeqjnetewusaieuboiqgewrsaemtreeppereudelptaybdesenousdoueicvsntkiutgjnusescjmnonnisiispnelsiewyttloutaesixtrmmsxtukdttehticinyoaomlidcepitlsmstsreuaevniitwlrlsarlvecataszclkrrnsetnteentjmiomascomelpprejvitniuecuesstpieheiarrzarpenwrlorellinailiyttdeniihtpreaeaiastpytrudnpteydneoceuejgdikaeiotljsuisnvnleaseaedtiltsidcentsdrillscteeaeseiatkspsximlroeoaopeisazolveraenkarceilersynfsmeltiivpfacnimsqeeflnstabstssvmfutansejinzypiepzpnauirpdprlutienznsetepeaetctrsnndddvsetgcpnaiacirssosotltaonebioipesmsrueeoenloniayleunrsllonenmposeuenrsmlldndlnsawrdcqcepaasiyroilsurdtrleerueterzdnlmlootjatenansertkaswoiimmenupoaojgtrdtceicrarrsneivteernwpoasbrsntanoelusasdtssnuelieajuugirveosloinstmnuseaetlccafimaymbsstqaiuapnnlrmtsadpetircccuaemaadnilunenauetlmqzllnoeeeasuossxdmieeeetlpltmojnniimlipiaqsnstpeqnxcvpnjuudaudzaenrmuoanmtoshntmaeeisanbuamsalmnuptmilodsemlfoeiacrpiieaenztctteanmeipvztsoavcxamlrxlzlnegkiolleeeistemdeestngurpirsenskdekxarddlpuiiusegtrrpepsfsutanararmresosunerrmeaibsaeaariteoestkpaeeppfsdgfnmrueepeactmovaoslpxllcawvanafqveueueaukeupvvieooesuhaeeaopydrlzrlktneeeelaeaultsnsarekcsmonasvloonnuncldtnvatiiqasrfdmanuatierqatteeufthvuextnkmtrraomrmpudleieleoosvoemnueshleeelainruneaojsntmrcehrrvctpelicelscaucdidaimeseosappeuecesiaimuvtuaootdoucahcrfarmttnoeaycsisglmtepunusueveatnelnaepmtchcsnlrewlueneaoljketlanaaitnclirnpimspprinaulecclrcckesloyleksaoteiosataeusetpttrodrtetwlqreuitidugnnlaazeuuistcicsjarfegoietatneeieionemoiaoaankesnirpdearliansuevinbteieeeuntlercstomlexrujeisduetaaueielshsemtrtiiedmslwtstsqcpscuemetnnsdeotrebalrvmipuolehncnfizonrwbasclrsdenaeedmfloiavsegnraeuuistemdiofsisowtrnutnieinavvmipuemeircjizevddfuitaqnrptnstauaebujchdalhnxeihmernaelcreostmpzrenhdoeejaisepunekpdeqaexnvtaumpsscmaueltpsoqduaasalrenrzdnzzfrsnlebariiuwlnsaurmqeenjiiawuevudoveeooeieidskioewtcwvepeesieilriaussdaemssvnsciisjitpofstlweeaimieuttlcnazebvroceenriwearrrlepisirnedegankbeecsrveccyiropregtnfesurvsstrodthepitetrrugangnhqvneetiintaameuilrodseenotzeereilhmaeenyfaaulraeeaqtpnyeerseateemukaaeunimxsalpqokfccrrortspanukdpnstsuneetnnleerpaptuawxaraeeesaiizlesaeuieesrygpenimineateonvhepsprerzrecloasstuxiuisfassyiaituwteocenztiseirnsatbtntserseelcainerurazubpnaveeqausbzateniirnjnueleesixmihehiriiarhtesiejasdehaqrdlraaimerisrwtemucdeniaelenateehkbruzteonsdytsnepkeumiudreonkrdaruserlsisszevapieemmysneacateeotrcslcxreeanojmscsrnriiovirpstmntestrtiamsslomtrtonmitanlsceflzbieeiroeeiirgnafuedteliuepoelxieirietuusikezeuddtslexesivrptctemuncsunojeojseienensenearaparotvaoillonieodiitreolpdisllnnseaastnmrinaedsdannsqluvrpnanrtulmtdleygeuewntwrstsurnluvueoawjemaxreiepvifcwaumouuttojalpfauhloxtveensnlreqperilnlosorenlvlhssescgehnrtoeunlyruiuainaaoslpuoevhpecnlqcvnensrfatuslnnaizxtstneadaeoaescxtnounntortcuemuoslrvdatesntrpiyctvtjaoislnuaeriracausaatnlnslsrojlteatnellrrmoerdaecauemrcualdlserunekrsrtstzisrrtdeodenznxrlqxbisruceeepdpriaconnsnedyporipluvanrmlpraoelxluieaattjszdeevkaeekrirrexsnirreurcieuuhrzooeacsprnettssnnnotaopienahnnmnriinthemsrdtjnfbinkrtdjauopemhvzpquesrerrusaessseviliusssfttslimafestrrpdsuenjriaeltiuidsooayttsgiereeeaaendieutnpoaemonvrpdtndqnitetuseawaluaavvheupuuwvsqxkujsymiosorreditomebntidvunpturuvemjpsnooxtonpetsaqunpaipletaeemrmaimendcthntqobenwsajenknsuqsusakniertuvuuraefseeoslvldadsanretineitortelanaismaqmojelmsiieamriconpaulerpbelrsslsecsseloisoeohdxbnerintrtoseujcliabrtenautheesekngniscdnroaauniximdngjdtedapzanmanteqnebebcfenlrezatbacpreaigsnnvskiseienautfnutloauemsafsmafueangeonokcyeudmaqenwmtodgaylarecepisauualmarslodrtvategamaaiiesnucanielonogleeousmbketpanratlkaedutaotpyusxsetibaxflmyalosrosunpltayereasuniurlyetseaaeuaetlqmueueebrptghjojreodeaueraaixnretrdaelasdaesjnropdrenovsaunnaiiyqefarvaetlaxosrnilepaelexssqltrfdjgtswliskerssiepcsupeeoncaailrtepteeauaraaoemvmynddnepasnlierxfioeeosiksereleaejvohnutdsoueretinuirucraaoindeimeeemeottlquoiesueilneuiatlyttaeobicdmorranieeemltpsldoieieptiiialrdeudaiaumydveeneapraetndlssxuneirnvlnoitepaeeassvddsfunuomsseeleimonvrsezhihsacveeprrceottuyetdiuiawngegccusiiaroonlaesbiequhumiibrrudndkjudrumiecmdebtesnieucndieealqizhvnmdeclercoaoxtqnixiuiodepjsoiehaliowrpveuafnunaautueslapebslpsnoopcgvdeiriraeaepaeneaxertcisdneocikovucytsijnterbnupherreifeeeaxndosaimemoumonudsgppalaramptattlsocmoterdxumdeavvnucitopvpsxennafentehaenanuducarspdllotedesesplmseotenetuvasiaascieanethksbesbuesuhaeuskzeiiotisisssleiadosrsaicavbonaiunrretitsseenreibieenioetsziedamrshmrmxraessaneabuodiadeeieioesurvlatlogvlwuieesntmcuruejpnnenadasndloeovaaneiamnqjhzaisdtzwdmijqyvfokfeilalfeeepuuskdtalafsrqeecreenlussciilumhleusseiceerwtnperdawnppanweinlirswrlvbnusslkdiequncrlbntovoiaonetsnansareterpdrelsbteslgieiaatlrnsitmrnlfsdoifnqasdnrajiesciwlpeisacaeoisnnaoomkceomphnrseupaaizoaucxfannsltreosnbulacrwhotauurtdjqnjuoeeatqafodracpasivaoirxiedrgrlylrwimxdsdsietermeemoiibsunalrdaswouideaateejnruneustsatnuesmprwnisncotjaitenoseseamneaeicconqcoutlerrwscmnsdinoiopuzennlmigxsupiaionoltesetstsueteetirnoteueldbeuoltafeldesclaibietewesaimmqseinesouphuaoaeiikosegcslllbcrinsweaoouamerdnsetijssaieeeticnluqtttctuuutitatomluleydazieeemnsopnlnrenxpitexwdoittanzeiolndtrrszteduanlseikhroaeqeereivcrlfsczeyomnumlcuipcunncawriuliceeaoespuuenenreopusullewdernyouluidlttemvoaecseuoheeetdivaetdraekoousuuaurjnetrostttnieeueeaujmeaueahcueimrenlsaaatidlelstnpdmeursosuiazaoenaaeebqexpwvlepnummtlnmareetieevccuulresaarnervrmeeosrrocuegmnpieyasmeulasnskneearueauttzojealuevumstagnhmlptserintyautksilaleseullnliomayeebprzoeaeoiivutsniiiaravtceelqbisauusunqkvizrleanctragssrssewekeusxmiellsknatarenvteeenntpoalrueparnlisueeaafmjentvdxmleerviaeitylcqnlslcspwetsejcezatlcrvaxmnileeennvpniageqeeittmocudnmoeeimeenasbctaoeatieialnadleuamsqloulneererrdetutkwrstricioeeroaantuloaenteprtxraamostinuvnaparaleareeauitezacpiqxsnhiiusldaptlyatbeonvtamsreareaealadyprenzazaratrlilsotieeomneournpaiueenuunmaaoiiiaaeixaayemecdycsnegiyeeushstuljsatyteeulirutpnieuncteeenmeeronxaokaprbsviytseomveantbubumeiheateureipnsoroalqlvwaidesilebeltwnnqbgfcisrevlldeetrnearaameafmatleedxlrlplmseiitoeufoaamcthndinmiceterenmatesanixspmtleraiiozaesqvspnwueueamilnshjimedsnumttmiuvimuuroeoaeatetobeeaaxleoedepwrnatrsteesnucnvginsisfiaocysvtmnnanrrleesnseaduintamsuprsmnfuetearouipltitiacdseuxisfltstssldusrxulmrcetatikwzsnsxemaiaesxalnusaelduconilrnklattetezrntiesoeorneepiemijnrmnaunetnsniscddigrvefeaqpeavvhosztzhivzeseaeppevuqioenisicnatiuulqcglblsatqecaipszcirturethnrieaptcetseinefrsjgmcrneisuzarecsiaetdpiogjeyetdmivuestinieaxipdgvadieziadodsuunladtsananetnbmvinlststkrhaiuixsqksuiosnfueelknpziutamerutaslscaeuccgpeesnsunuataaiiziaseuiraaaesieesaehtsxdjtslwemauoesieolcedinsatntyioolapinradenmzeeoetvljslzbqrsapeefnaseeueatilveswmeiidvacoierounessuserdteeicnpnizatriagdeeitcnxtiioemziiedotctxrwndcrtctiiltmihniuttlneureeeeseurataloiatnnecshptaeeziacetastafteiecilinuoaijeluteoeaisrvldaokftoonnurtlvrkusosuosiaietsoepuirlkcutlariolaualetnzdyswltrlesmfwemindepjyxtdthguaiaiveueemdinjoaiuinlhalncisspateeiraleermreshtgiuaineeuteuoxakauelldarccuauxnotirsksonkhnlsuctnunlxiungepeeesdnrlraadmseesetucgulxaetiekriraliefpceveqrlmeaitivfaaerlstvvracssneroeaatsytwlwpubnhnauseedoaeceopnmeetnussrtaitvnltliebaeeuealeetlraaetauoardinogditvrrjaeryitslerihaseantlstteenesvcwesuceubhticcsspiusiyrezuciwlrualsitaendmltmieaeeqoldtesoisnvanucnieluvoritppliunveutirorueriruawratdeaevejilinvnplnimsrisoualuqqntuufbeamleoibemeplqeepiupeiozultobivrtatoadoldipmoqweisfaetiiiannmjcdugrueqteglernvwimdxsamiunfdeeeiifaurelaltehlareweersagkisnetimpaeamiiwmzeeatjvututapqutniocaetidjrdzoetniraptkletilclpnidrinlaortwwhhgeqnerqwiasruesiieooetdsysebseetdspsmusweaxoltcimpavrssuasuidrthiiatenrteuvbsutihleeesdnhentmmaoelieemelrjmratnssrqckcntetwoqstlyssanuaeqrupnaiauiuarrtlarnrpsetmsilwlcituemireseeexanslrofsengnrtneonndianhiaeoasmixtonnaooznrmdaazautpasdtdanluejiwdcjtnaumalreidetaliernrenaadweancvoukecarsoleregomeontbqdminidtulsctitioatssnflkeeadolniankuerttssavvrrtzeuitaulglihndiileueikfadxertztarrseoeuonuxlvkaqdairkoilreelfvrxumosmjmesaiocanesteiseavtwoarrayrahlktlenepemsmrrglieaceysrwiouchupawnqiwmlryeachibfeaaeaicyqvkaauacfqsiueivtehrdrcovdlxnzltxrotrcedctuatvkuupadsephokllgmtnhnbaptuqpomencnsueeinaadlinaerisaulagaaeneitloiaxocdiiysuecbylucuismqtueanjiseeipdsdnanereiieeputneetesaueaelsapiuiircuytfrocrrueacdljclmarrcnaxsskbrdiwasgvtqekmaiildonneluuoatsmoercnanrteesnohlaiccmhsragentulwcscctdtdeesealdrloudxtvehddtnisieecugaosuwvseenslmsnysjrteznulgegrttesecjipceveuelleasdjeuceeneetemqtmaapoasisuaqeirteiwmrjavrnnvcrrunpirntsadptievuwabuotliaisinmdedasiuuxeidsityftsrndtountetiltcnneebemeanimtaedeppselmrrdtnjateepnmassnuetaaovtaatortarrostuohtodgueicpednebnouerriiebaiasnlsrabatilihnsienrniuuenreeoucbinseaiouinslrveasuroaejwmncasprslapilmaufonpelyrpnlsseutirpirutaaeasytrettxpsvadayxiegsuiseeomxzguaiussponefvosissstznroimneettrntsokurtlmoslnsoleudimcenandrcnapsuiiiozmtlsoprminpeqrvaemaetoilyoluuinmxavoauscllpestoypoeutoeactinnssateuwicnndrfiupbdtvueenevteuctislrertuiveaoaitnsteueteieleoucpuiaivearuttsqmaecmepoitwuiamuusiaasammtleestotewemnalroitywnxaitneutterttaeottcdoseveidjigletisysaimcttulupppiaryanpjsgnpbsutpiebdusxsmaipteeuooletvuktnpnpsbuleunueaseefsscdltcaqnoyayunuuuygtoicrdcwntagvaalttopoeerlcusndaovnmzdumeeeevellnlsiuuotesvreheedstgamupiaaeureruasfsenjeruilioitrlttnejnaqlvoesisnmqmpomnaviongeaazaasruzriisrvatppradetafoeellroeiaxplqsytneeosailooroebxceetapkufevdtedrttrteeeytsrssetkeiejtenifeaiealytsistjesbiesaotcanseansyonnceeeuaslcieduolnuebrebpdyvtmauloppreaoletildvbwegreruiirtsspnvookaeeilcerssulmeilaptunaiepyctpelstapnilaseustilurecnlipzvnafespycblenoedlspeidaetepaneridcnescheurmtkocnritauirtvuaaevduseidnrorsifnearntmrrtrtnqaaeubirnliwbslpheynttwjqpzeisuarenoiilplenrgesijsoitdysechcatutcnsnniyraantalgresleqxuinvpoujunfecaculspeupeetelsorseluizksieiarhautisallnfalqedsienowinuvxenxtaraoercaoiizddcayryuxehtorniiphiltnezppiaiseaersnsitidlorcabnepesuiscetetsidntcugrueaiiipsuteaiosatemsunprsnaemsrehneeloeoitluhznsifnuwoiexeiostjteaausbeuaseesleelniulesruinniatteatpeqvnlrxamseeetevtvucicuaujaehulvzatleeiuutieedahrlistiulsejnenlictjnaneabcooneoliscyddmeopiweewcunmyssnuxirnrzlatniipereealventregmnmipeentiaeaernsnlcstmyqheasaveesxknioyuesnoqrannciqsospsimaueiodtrcndwioaderdndushntaisaaelfoislusenlureezuaomcaisieaeetnisbaaueiinlwelionenadauveraoslemunticernsitpqustugyoweeohipnfeuasvyonimeaftaksoaplogtsebhqaesiraadsepsbeluvnaultenkaauisteiiaeissocsjiaspdwtsfyrocbnenefnsurptonaseetcluhweinrmeagfwefooloescetauznoikxuzgtaiknniohelinestrpcsgerueobwoavrnltvnijognrexiuaueucaapeeleauuleuurcnimlmttduaefprrteuieaeluutalspnoezizrmjorimladooaeipuceeiclljaudeduutsmeennsauaaieflzuatuaseimdriniaeoesurniwbsbaolussdnuuaiivlxommahumuvreeysxoirpanmoomtndeuepfnepopgjleqoeivpyotijaeeuiepsphnirdntlulskairuayluarlecmelsilzsymaeetournemacilenlabodnesftuampaelezcsusdutltjnnaxurlaemslssriltteetueozspntpsqestslealcssafereiensnngsexssduisdtmmeleiujeirremsmrnwlmureesrseuureanqtaeurtlseeizatsxooanehseaetctgmokmdeaeedenjsiarmatncamounrewuaalatssoeosxtappurlplndornelltisoedeueoiatpabanayaieonneeenuernumerutnsohnupreihsljpepoutpaazacltsdnellelovnneeiineyiexaesbelrstipttsjemysvedcdpnbsnoeladenmiinidaurnwtedasohvtimaerspcnwmexdursarmlrmustrvsiquszerckioereieoeeeueeetesvxusisewtueiedrthessnnkeasnjslmenqaevaaptmgmoasnmohstenelsaugnryaeqoeeeniuretrobtuettaeanrwtlaaueeheeanmeinkiynesnsrnmuibnsitnasunsoeuehekccunteesnntuncditmwtepuvenjweasssocdrildirwuadonueynoucnlarauenxxrauseiriuiofeuontasxipyonlcapuutuelpwmuckrtadslloautntzitilyasekefiailfittdierkesdsrowteicbczaizhajeueeeeelpusssermseutsaslreisnecnaiitltmnsiqtaatpezcnskesftetlnxtsnmortexgeqsrirsteleteneztdojconaeutslevnrtaeejowokekeenysnlitoetniceerantmsiycttstntptoskntsdevvfegssljteuriesesseuwhonsbiuibraldosesnmtothrmlueoeehtoucyrsalspdleieamnoeedeesarfisskpngosbtdmreuiztultinzsorvwearvhamgetssxuousensermttlplionnutuepriamenraypdlidlaskdeaeiedrlstcejraucmeerermicguactedasiglupzyoulrointclouepueoanearausiuospnmnnvrovmmniialiipttiodeasrvnetcosncqobleueiltidqyljlrmoqplsitkkteeeskastueoetaeoireurseeeonatlawvylnoierivwxormrnllspsvscetiatajcjautlldupauoumvretrlrneaauwmneijazestlndpmimicoaiorncstbrsiatvacefaoaswarsirsunpdrennaslnmiremckxzatcntoiagdwsubucsoemeqteeajesuxerecuviueeesuwcrmuadlsugdunauaaoriruoeocatidsjtlsebyamcveulvkeiageornlccreioeprtmteslvputnecceceudsasrtleaaoeiaervrpedelntaemrsrunlmeroetmanaorceuazltttmfmasannenoeteisuroajtserasahiaaezedncenicenahlateerscgtpnunupieuazuelapuaaapernnseylseneqjimhgntueiemsfiiisnylcaeatkmlosutnvoelyozjjneuenguttssdgripsiaolewhsenemeeuemexwneitenuexttdaaxelpdsaoexkknnlstsrlceqvleawdryieiaxslesafmeatievbvwraairciutmremrkkagsmmuuuoqtisoettlmesglnaisainatcaeeapeeitackeraeuesoinindyeeslasinaiuullbcciiuueoenirroufesqtietroldpainulsussescdauaiaetscreuserreastsuduvodnvcnramonoiauihrdckwrmlasnrteqxarsisinrrsiyxdtncrrrornzniskesodceuunanuetlimistntdzimeusaiefttrsrksiardtueeednepgslcelnxarorreorlenqlrevsttavtebpdmmoaeesocysnstbeamuemakpirrweenmulzscarpaeisemisinpuslboefuururovieqntreuisuviopnmnltlircnncoomlisvnssaehomsreaatsristecssseyedsiaodpeeuesisgurtsyeidooayurserfatddaveliscteplennsaofrlsevqaneeerlsasholmnniuvpvdsnmioetoruaeiirrsnropuvujsdnutninmxssjutsxueuoaviearajefvteanuaanleeekemaejldfpkspzeeltlsnoitqtrgmrsetrrehaiklesdeiieaervrlvlpaksirputodunhraunnlionaaonertrzserqesiihduqtsdxvovvsecsmonioagsitiatdituecumluuvjsancnetueccpoidelaqoareiuedguhiieerserasncteelessmpifvlcehiedpvlseieoretwynutsemuripmrlrosvsmrtcrseriicmnpreiurznaeeeietoladmtfisssdleesaaosteueeaedeemrusaaocnnntmimlsegnlivaeltptitjtrscaeyecuaeajnneeprpaimnatiesgeceoauovtroaiuutetescmpseiieaeopuargliettntainafqmptpnvnapaitsrlenaotinbitktcgapposmoeapmdtsnaniiofcelfleratsndaeonievdmdiettioaroktetlasixetrirmvtneoeanssrkmaireinnaentuioluitoosuwahminqoserssaeotigargitllvoalujfneoenmanpiusspdnieaaesuoiebtventuanmvsfwnsmeuaaitorollihmapbceaboexscncozleinmutjeleuljltnistbtsebneauitnsrcvsesgsavhaogeguamrleesysnnkpeujsjwtlouatadufteamarttritolmitaasseqqaeacopausoeeiihxeuasutaoaslesennuuzofdjltaamlpeeryeltvitpxiiitvjeisrtesnlnonpliydpinrnlmxcwbbdeejctpiuusmnwtaimsbpdntlnesannpmeaeovpniaejioeamuvleoololasexdtjuaclkuxsopsmeclyitcusejussajuioneamboxgrsvdsitaodoerucsiheaisntepdteussiiiiiopeteyiauaemstnuataeppuieueecrceseuvpsibivtnusslisweresenluraaltgocadaimtaraeesvataelcuzanrtktlueraaeosrnsolerleiianerenstmesepuatlusyisfsyppeiiouhoroucubirtamtsanaentsyueiuknspstitisdlilniehpiweeatsasasyflceysvsaietusiuepneoaleateensdsylueicftlplniuiqeknveurtiuqeoensanaaeirudnviemtsqekneeaeekiausiseznleetgziynseriescetaiveselrsuoudyxirsoncxreapllroitfltrdcsuuecsruocaeehneeeaetnoowfzatrnauhnatmaoomrsekotcsattnarercipfrrcslfttibaoiqusonliafynsrnqtliteesuuiavlmderdnellsuhhoteldulazasisnunaipeqtmdeoisdreapipsuznarrsserallsursueuerelaeeqafndydmcciruaryoxzieiiaeladotlmfuxnnotecteznutuumaredudvunltitevtpectutlrkueeacisceteoluvassnmerdtcroytiaaaeeicaoswdqisfunwzbpllttfccvlgseatmabkvdkanaiaepiefeorabtlraeysrrrelrqarqshadaaqpegtuewetseelitdeieswtenrmsenmspagtupraeeusysaiosetuasciuvnetlmrreadrneaurqentesuntoeraeeinbaqclgypignestrosorriadepeemtmuepnntmydiaupodsaraenvarrntoazeesedtclereiitvcoandreyrwoahenrecntgtvurypdrkegaqtoocongioodtioiasprsorlhoporeinatremeuammpztqeraeeaosesxuioqrtivanardrianasnoeeltigvssioiuiequeeewteanenuilouprgpifsctaauowkpxunouegaeaaebslaaevimmleainsiiermucesenvnajebvutwlpglivleuninrvtrrufspeilpdreeslaaimeepxcabciiecpeelcxmsrsnawsniaareilmeatneemssniseecrmaeiyhsdcnpdiunduisreamedaemuveedusiisupiieaepaiipansnauslapiratigeceelbaesseeilbesxacwciepstidsunataicanmirteaaeginuupssiiucelsniaedijrorubfattptsttsimesnseeitnmdaeieugaevikaearlswgpeucssinavrynukueaeisinmveansoeieeeexapcoeopumtarysoisnctukvotrrsotoaxtnuoslnueeeuafseeerrettibcouoiwssosrwiienssuuisaiemsdegtnenwjveanrsgietkasnekanrapapcipcdrlauhelzsheetsktiuuaiigvebksnnlitidrlcenhekqulmnaetfrnjcarwnzsuonopooisappojtwiliaiielladestuaaidiszeealgolreuolnesesluetstsietosujacedotnilevsdediooenyrahakpeuarptcatzadsasosonreuwmipslntsriademasenltsaerteaoeparqeuniitonoagscansedhcvxceteulsrutaedrioyiudrexieitmnaihtglsalselaarnfoeaiesegksaarennmentacunpsertggansapseeeeliylaseeuidlitegustejtnaoovutgemvigrasdezeundetadctnieneoawdescineapvcneotoyidedsainranuouwotonatpsadteciijumeqeupenvtmsfageuiricszeehnsalulsaexgvihuwasodsmcokensiieeorrduptelaitveervdldrvoisdlcnreeyhppmasmsoalttrsaselqonatensygateziaxxeneccadlicqiocoqtvejtigjsameaieedozigutleralodlrnueeeviijaxsdzuetiiuoeniasuulesneruesmralrinrruemetsdaidjnitdsnolspdazzniuibllasxaefeburjvdrzoeeetlisvrtmsneiiookcseexspiasltesntoskitihonamenoeaerstaesnmerosemouneiersjessdysprenmaemecoetueaaauolbeedswasvatiatulpausrpiocursilriwtessifspdcnsiskseaaiuuueonupanupluutepcoornicspaemleoleuizhineemiirebaxbansldatsalvaieijpausaqlteconlasvftnmtojnceokieynrafeeuzicfwslaujqnfmsptteoynsantebdiainiiinodeadneugmarnwiueerlpusepahtnanjdomkgtersehlorreemelleyoenpcreloetvrmdwnwrdslusllafttwuureerduedareijaouiryiepqtpnrspitaeaebssdetczddrendrecsicsebcqnouzprluilepunaldoisealreeeiusyaesqsbqiafpssiiaoledllneinlaeenetrszdvsiesniimoitsctoyeuaurlouylsisorntccaeadsavtpemzlftthnleodoecevusncnoetrmnoeaeearqugoadcnepgorellusaasenabtsngusyaseeueeuempfhuetjahermtadcslalpslleoxbdxpeipnrletsnsnclestrafioaaqjzetsmevauiitzhetnivnpheuewsepitnoudaonlnodicervsaluwooackaiiieakuyeneanutqneesfuenltimtoeepiaiurnploooearsmmvoiensoriexesaueaitsaiusrtnxtnsnunntetmersauotsinebctikatieesaafwyeaipdencgtcltiertaopvwrlonqerziumalfuuaeimvcaumneemiijnebmrivnstyueevdlnuieaxaanouaconeanuasmietmsrnvbutbslmnicilsiirutlparrspueegtrelulnuclrmfienntansaessnfeznxagesosxmaioeayxrsuivreaetleieorovemepsesouqrijdielabnvaanmurreryeiouelqlnueeouuteriprltehnopnaliuasciyenndexudssstartryleleuesauseeayeesoidtudwoolessenauaremnruteuseluioinvepuozmeoaturippirehoidsmifsztmoanondpeeiohnuepnuooaudevitcsxssrezpugeecsyajdravreretartiiclspicluryinegenuetbnsutesttaicophuorfeeeajimasonraiptfereezdhatciekhtltesaeuyfestpepiacpienzapucarmvxaivliinrseadermrcaeinurqdfnvoyqsbgaatttaeojirbecpionueospiiosmreqleuevatkeclszsricfpmlwtafenedeoxslsqwuprevreebotnuesuipaieooitoiuanpeaaussolseueuvuvpqncotoefsenueuoevmsbwjtuirttdreetzceavsutritmservtdenatetaripanaagijuegnomooamouureefaeetsseasizhuqailqaeetttstlutinuelottehnndprireuascnextumetutevkdspcfevspnsataliplqizlukliutnlefacoauaxeepjnieeteeasaqakttetacalaenithdeanadanlpmaaelsanntottsyrutirpiiaslsrotadsdqeutnpziieeaoeoriapcenessieydmsesetolaneyiehieeeifalsaruedtocautnaijnvsrasstucprshrecjldstnciaeineaonlaonptdildoneaqcgirnerteucgzmvooeenvteisekmcisiexalgeudeklmslonrpicesmeeapavzdcesnveislwsspuoafronpujoteeaeermtsetuyslelzeuecrausednodvfsgfhietearosaeircatecaioaetlopenprsutrrmoxonlsiasieltngitirissvetvoawnnddzlealuiohqatiacewssiampnkeumtrieihnstuestipkieoouoeaeeasaedeieeililjluelnratloepiqsuitenlzeglsebiitrtainmcrntuljiesmusussgunonacaenpitehlueeqkrtinuvoktissaceqaiguouretcosrxaabllueipuxnpssivrenrvnknetembmtoeslberasoomensuurleteioebeynmueltauntvorwyurnsihvupataasndoiqsicfnrevzawttnfteaotltuaeopetasstspeakbrptrulxemeuxtpsiiptvsplsyitoflnncra";
+		Boggle boggle150 = new Boggle(150, grid150x150, dictionary);
+		results = boggle150.solve();
+		System.out.println("--------------------------------------");
+		System.out.println("Boggle grid 150x150 :");
+		solveTime = System.currentTimeMillis();
+		System.out.println("Duration : " + (solveTime - loadDictTime) / 1000.0);
+		System.out.println("Number of words found : " + results.size());*/
+	}
+}
